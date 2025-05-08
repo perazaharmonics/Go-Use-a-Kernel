@@ -1,8 +1,13 @@
-/*
-* A wrapper function for the Go log package, such that it records
-* the timestamp, the file name, function name and if it's an error
-* the error code, error symbol and the error message.
-*/
+/****************************************************************
+* filename:
+*  logger.go
+* Description:
+*  A wrapper function for the Go log package, such that it records
+*  the timestamp, the file name, function name and if it's an error
+*  the error code, error symbol and the error message.
+* Author:
+*  JEP  J.Enrique Peraza
+***************************************************************/
 
 package logger
 
