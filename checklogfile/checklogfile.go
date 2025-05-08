@@ -6,7 +6,7 @@
 *  A program to determine which processes were using the Go log file and send
 *	them a SIGHUP signal to tell them to re-open the log file.
 *
-* Author: J.EP, J. Enrique Peraza
+* Author: J.EP J. Enrique Peraza
 *******************************************************************************/
 
 package checklogfile
