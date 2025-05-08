@@ -8,7 +8,7 @@
 // written in C++ by MJB, this is a Go port of the original code. 
 //
 // Author: 
-//  JEP J. Enrique Peraza, Trivium Solutions LLC
+//  JEP J. Enrique Peraza
 //
 // ============================================================================
 package semaphore
