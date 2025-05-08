@@ -18,7 +18,7 @@ import (
     "path/filepath"
     "runtime"
     "time"
-    semaphore "github.com/ljt/ProxyServer/internal/semaphore"
+    semaphore "github.com/perazaharmonics/project_name/internal/semaphore"
 )
 // ------------------------------------ //
 // Helper function to get the current function name
