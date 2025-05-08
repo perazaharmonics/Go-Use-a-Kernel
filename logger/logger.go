@@ -327,10 +327,10 @@ func (l *Logger) writeToFile(file,msg string) {
 // to the specified text file.
 func (l *Logger) logMessage(level LogLevel, msg string) {
     if level < l.Level {                // Log level less than current level?
-		return                              // If so, return without logging.
-	}                                     // Otherwise, continue.
-	  l.mu.Lock()                         // Lock the semaphore for logging.
-    defer l.mu.Unlock()
+    return                              // If so, return without logging.
+    }                                   // Otherwise, continue.
+    sem.Lock("Because we are writing to the text file.")
+    defer sem.Unlock("Because we are done writing to the text file.")
     switch level {                      // Set the symbol based on the log level
     case Debug:                         // Debug level?
       l.Symbol = "[DEBUG] "             // Set symbol to [DEBUG]
