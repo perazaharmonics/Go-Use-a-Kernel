@@ -1,0 +1,105 @@
+/*=============================================================================*
+* Filename: 
+*   signals.go
+* 
+* Description: 
+*   This file contains the Signal Handling traps for the proxy
+*   server, as well as support for registering custom shutdown callbacks or exit
+*   handlers. It captures the SIGINT/SIGTERM signal for graceful shutdown,
+*   and uses the SIGHUP for log rotation. An example of a custom shutdown
+*   that can be registered is the HTTP server shutdown.
+* 
+* Author:
+*   J.EP, J. Enrique Peraza
+==============================================================================*/
+package utils
+import (
+  "os"                                  // For file operations, I/O, system calls
+	"os/signal"                           // For signal handling
+	"syscall"														  // For syscall handling
+	"sync"                                // For mutexes and locks
+	"context"                             // For context handling
+	logger "github.com/perazaharmonics/project_name/internal/logger"                 // Our custom log package.
+)
+var (
+  log = logger.NewLogger()              // Our log object.
+	shutdownCBs []func()                  // Slice of shutdown callbacks
+	mtx         sync.Mutex                // Protect shutdownCBs slice.
+)
+// const debug = true                   // Enables debug logging.
+// ------------------------------------ //
+// RegisterShutdownCB provides a way to register a exit handler or shutdown
+// callback function for external packages (e.g. httpserverm proxyd)
+// that are run when a SIGINT/SIGTERM signal is received.
+// ------------------------------------ //
+func RegisterShutdownCB(cb func()) {    // ------ RegisterShutdownCB -------- //
+  mtx.Lock()                            // Lock the mtx to protect the slice.
+	defer mtx.Unlock()                    // Unlock the mtx when done.
+	shutdownCBs = append(shutdownCBs, cb) // Append the callback to the slice.
+}                                       // ------ RegisterShutdownCB -------- //
+// ------------------------------------ //
+// SignalHandler sets up a signal listener that handles SIGHUP for log rotation
+// SIGINT/SIGTERM for graceful shutdown, and SIGQUIT for immediate exit.
+// ------------------------------------ //
+func SignalHandler(ctx context.Context) { // ------- SignalHandler ---------- //
+  sigCh := make(chan os.Signal, 1)      // A channel to receive OS signals.
+	// ---------------------------------- //
+	// Notify the channel when we receive these signals.
+	// ---------------------------------- //
+  signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP, syscall.SIGQUIT)
+	// ---------------------------------- //
+	// Spawn a gouroutine that listens for signals and handles them on a separate
+	// thread.
+	// ---------------------------------- //
+	go func() {                           // On a separate thread.
+	  for {                               // Until we receive a signal..
+		  select {                          // Wait for a signal to act upon.
+			  case sig := <-sigCh:            // Is there a signal on the channel?
+				  switch sig {                  // Yes, what signal is it?
+					  case syscall.SIGHUP:        // It was a SIGHUP signal.
+						  log.Inf("Closing the log file.") // Log rotation.
+							log.ExitLog("Because we received a SIGHUP signal.")
+							log.Inf("Re-opened log file.") // Done handling SIGHUP.
+						case syscall.SIGINT, syscall.SIGTERM: // It was a SIGINT/SIGTERM signal?
+						  log.War("Received %v: Starting graceful shutdown.", sig)
+							runShutdownCBs()          // Run the shutdown callbacks.
+							log.War("Shutdown complete. Exiting.")
+							os.Exit(0)                // Exit the program.
+						case syscall.SIGQUIT:       // Is it a SIGQUIT signal?
+						  log.Err("Received SIGQUIT: Forcing shutdown.")
+							os.Exit(1)                // Exit the program.
+						default:                    // It was something else.
+						  log.Err("Received unknown signal: %v", sig)
+							os.Exit(1)                // Exit the program.
+					}                             // Done handling the signal.
+				case <-ctx.Done():              // Is the context done?
+				  log.War("Context cancelled: Shutting down signal handler.")
+					return                        // Yes, exit the goroutine.
+			}                                 // Done selecting on ctx or sigCh.
+		}                                   // Done waiting for signals.                                   
+	}()                                   // Done spawning the goroutine.
+}                                       // ---------- SignalHandler --------- //
+// ------------------------------------ //
+// runShutdownCBs runs all of the registered shutdown callback functions in the
+// order they were registered.
+// -- ---------------------------------- //
+func runShutdownCBs() {                  // -------- runShutdownCBs --------- //
+  mtx.Lock()                             // Lock the mutex to protect the slice.
+	defer mtx.Unlock()                     // Unlock the mutex when done.
+	for _, cb := range shutdownCBs {       // For each callback in the slice.
+	  safeCall(cb)                         // Call the callback function.
+	}                                      // Done calling the callbacks.
+}                                        // -------- runShutdownCBs --------- //
+// ------------------------------------- //
+// safeCall is a helper function that executes a shutdown callback function
+// with panic recovery.
+// ------------------------------------- //
+func safeCall(cb func()) {               // ---------- safeCall ------------- //
+  defer func() {                         // Defer the recovery function to handle panics.
+	  if r := recover(); r != nil {        // Did we panic?
+		  log.Err("Recovered from panic in shutdown callback: %v", r)// Yes, log it.
+		}                                    // Done checking for panic.
+	}()                                    // Done deferring the recovery function.
+  log.Inf("Running shutdown callback: %p", cb) // Log the callback.
+	cb()                                   // Call the callback function.
+}                                        // ---------- safeCall ------------- //
