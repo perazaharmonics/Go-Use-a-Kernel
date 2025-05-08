@@ -10,7 +10,6 @@
 ***************************************************************/
 
 package logger
-
 import (
     "fmt"
     "os"
@@ -19,9 +18,7 @@ import (
     "path/filepath"
     "runtime"
     "time"
-
     semaphore "github.com/ljt/ProxyServer/internal/semaphore"
-
 )
 // ------------------------------------ //
 // Helper function to get the current function name
@@ -86,13 +83,13 @@ const (
     maxLogSize=64*1024*1024             // Max log file size is 64 MiB
 )
 var (
-logdirname = ""
-logpathname string = ""
-errpathname string = "/home/ljt/Projects/NetGo/logs/error.txt" 
-fpl *os.File = nil                      // Pointer to the log file.
-fpe *os.File = nil                      // Pointer to the error file.
-sem *semaphore.Semaphore=nil            // Pointer to the semaphore.
-once sync.Once = sync.Once{}     // Used to ensure we call destructor only once
+  logdirname = ""
+  logpathname string = ""
+  errpathname string = "/home/ljt/Projects/NetGo/logs/error.txt" 
+  fpl *os.File = nil                    // Pointer to the log file.
+  fpe *os.File = nil                    // Pointer to the error file.
+  sem *semaphore.Semaphore=nil          // Pointer to the semaphore.
+  once sync.Once = sync.Once{}     // Used to ensure we call destructor only once
 )
 
 
