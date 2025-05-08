@@ -22,8 +22,8 @@ import (
 // Helper function to get the current function name
 // ------------------------------------ //
 func getFuncName() string {             // -----------getFuncName-------- //
-	// Get the program counter, file name, line number and ok value.
-	pc, _, _, _ := runtime.Caller(3)      // We just want the current func name.
+    // Get the program counter, file name, line number and ok value.
+    pc, _, _, _ := runtime.Caller(3)      // We just want the current func name.
     // -------------------------------- //
     // Delete everything but the function name of the caller, and name
     // -------------------------------- //
