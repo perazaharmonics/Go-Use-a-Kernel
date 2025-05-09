@@ -70,7 +70,7 @@ func NewSemaphore(who,name,username string, key int) (*Semaphore, error){
 		}                                   // Done checking if we err converting GID.
 		syscall.Setegid(gid)                // Set the group ID...
 	}                                     // Done checking if we have a username.
-	id,err:=semget(key,semCount,unix.IPC_CREAT|unix.IPC_EXCL|perm)
+	id,err:=semget(key,semCount,unix.IPC_CREAT|perm)
 	if err!=nil{                          // Could we create the semaphore?
 	  if errno,ok:=err.(unix.Errno);ok&&errno==unix.EEXIST{// Does it already exist?
 		  id,err=semget(key,semCount,perm)// Yes, so attach to it.
