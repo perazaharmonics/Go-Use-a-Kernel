@@ -544,6 +544,53 @@ func (s *HttpServer) Start(mux *http.ServeMux) error {
 	return srv.ListenAndServe()           // Start the HTTP server.
 }                                       // ------------ Start --------------- //
 // ------------------------------------ //
+// Function to start the HTTP server with Context. This is more idiomatic of 
+// the Go language and allows us to tie the HTTP server's lifetime to the 
+// context of the overall application running in the main.go (our application).
+// It takes as an argument the context and a multiplexer to handle the HTTP requests.
+// ------------------------------------ //
+func (s *HttpServer) StartWithContext(ctx context.Context, mux *http.ServeMux) error {
+  s.SetEnvTimes()                       // Set the environment variable times.
+	addr:=fmt.Sprintf(":%d",s.port)       // The address to listen on.
+	srv:=&http.Server{                    // The native GO HTTP server object.
+	  Addr:              addr,            // The address to listen on.
+		Handler:           mux,             // The request hanlder is a multiplexer.
+		MaxHeaderBytes:    1<<20,           // 1 MiB max header size.
+		ReadHeaderTimeout: 15*time.Second,  // Read header timeout.
+		WriteTimeout:      20*time.Second,  // Write timeout.
+		ReadTimeout:       20*time.Second,  // Read timeout.
+	}                                     // Done with the HTTP server object.
+	// ---------------------------------- //
+	// Run the ListenAndServe in a separate thread to avoid blocking the
+	// main thread. This allows us to use the context to control the server.
+	// ---------------------------------- //
+	errchan:=make(chan error,1)           // Channel to receive errors from the server.
+	go func(){                            // Start a new goroutine to run the server.
+	  log.Inf("Starting HTTP server on port %d",s.port)
+		errchan<-srv.ListenAndServe()  // Start the HTTP server send err to channel.
+	}()                                   // Done with goroutine to run the server.
+	// ---------------------------------- //
+	// Use a select statement to either wait for the server to finish and teardown
+	// by listening to a ctx.Done() signal or we receive an error from the server
+	// through the error channel.
+	// ---------------------------------- //
+	select{                               // Wait to Rcv either err or ctx.done signal.
+	  case <-ctx.Done():                  // We received a context done signal.
+		  // ------------------------------ //
+			// Everything finished correctly so we can shutdon with grace.
+			// ------------------------------ //
+			shutctx,cancel:=context.WithTimeout(context.Background(),10*time.Second)
+			defer cancel()                    // Cancel context when program exits.
+			log.Inf("Shutting down HTTP server on port :%d",s.port)
+			return srv.Shutdown(shutctx)      // Shutdown the server send context into it.
+		case err:=<-errchan:                // We received an error from the server.
+		  // ------------------------------ //
+			// ListenAndServe returned with error so return that error.
+			// ------------------------------ //
+			return err                        // Return the error from the server.
+	}                                     // Done with select statement.
+}                                       // ----------- StartWithContext ----- //
+// ------------------------------------ //
 // Function to read configuration and load mappings into the object.
 // ------------------------------------ //
 func (s *HttpServer) LoadMappings() error {
