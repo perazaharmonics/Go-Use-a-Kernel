@@ -13,7 +13,7 @@
 // ============================================================================
 package semaphore
 import (
-  "fmt"                                 // For string formatting.
+ "fmt"                                 // For string formatting.
 	"os"                                  // For I/O, syscalls, etc.
   "os/user"                             // For the passwd struct.
 	"syscall"
@@ -25,10 +25,11 @@ import (
 )
 const debug=false
 const (
-  semCount      = 3                     // 3 Semaphores per set.
+ semCount      = 3                     // 3 Semaphores per set.
 	perm          = 0o700                 // Owner rwx permissions.
 	initLock      = 1                     // Semaphore initial value for lock.
 	initUserCount = 0                     // Inital value for user count.
+ SEM_UNDO      = 0x1000                // Roll back counts on crash or exit.
 )
 // ------------------------------------ //
 // Semaphore structure to wrap a System V semaphore set of size 3.
@@ -36,7 +37,7 @@ const (
 // user count, and the third is the locking semaphore for the user count.
 // ------------------------------------ //
 type Semaphore struct {
-  key        int                        // The semaphore key.
+ key        int                        // The semaphore key.
 	id         int                        // The semaphore set ID.
 	who        string                     // The name of the caller.
 	name       string                     // Record keeping for the caller.
@@ -304,7 +305,7 @@ func (s *Semaphore) semOp(i int,op int16) error{
 // The flags are 0 for no flags, and the value to add is the operation.
 // The index is the semaphore index (0,1,2).
 // The value to add is the operation (lock or unlock).
-  sb:=[]sembuf{{SemNum: uint16(i), SemOp: op, SemFlg: 0}}
+  sb:=[]sembuf{{SemNum: uint16(i), SemOp: op, SemFlg: SEM_UNDO}}
 	for {                                 // Loop until we get the semaphore op.
 	  if err:=semop(s.id,sb);err!=nil{// Did we get the semaphore operation?
 		  if errno,ok:=err.(unix.Errno);ok&&errno==unix.EINTR{// Interrupted by a signal?
@@ -347,7 +348,7 @@ func (s *Semaphore) logf(format string, args ...interface{}){
 func ErrSym(err error) string{
   if errno,ok:=err.(unix.Errno);ok{
 	  switch errno{                       // Return the symbol for these errors.
-		  case unix.EACCES: return "EACCES"
+		 case unix.EACCES: return "EACCES"
 			case unix.EEXIST:  return "EEXIST"
 			case unix.EINVAL:  return "EINVAL"
 			case unix.ENOENT:  return "ENOENT"
