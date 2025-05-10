@@ -10,6 +10,7 @@
 ***************************************************************/
 
 package logger
+
 import (
     "fmt"
     "os"
@@ -18,14 +19,16 @@ import (
     "path/filepath"
     "runtime"
     "time"
+
     semaphore "github.com/perazaharmonics/project_name/internal/semaphore"
+
 )
 // ------------------------------------ //
 // Helper function to get the current function name
 // ------------------------------------ //
 func getFuncName() string {             // -----------getFuncName-------- //
-    // Get the program counter, file name, line number and ok value.
-    pc, _, _, _ := runtime.Caller(3)      // We just want the current func name.
+	// Get the program counter, file name, line number and ok value.
+	pc, _, _, _ := runtime.Caller(3)      // We just want the current func name.
     // -------------------------------- //
     // Delete everything but the function name of the caller, and name
     // -------------------------------- //
@@ -83,13 +86,13 @@ const (
     maxLogSize=64*1024*1024             // Max log file size is 64 MiB
 )
 var (
-  logdirname = ""
-  logpathname string = ""
-  errpathname string = "/home/ljt/Projects/NetGo/logs/error.txt" 
-  fpl *os.File = nil                    // Pointer to the log file.
-  fpe *os.File = nil                    // Pointer to the error file.
-  sem *semaphore.Semaphore=nil          // Pointer to the semaphore.
-  once sync.Once = sync.Once{}     // Used to ensure we call destructor only once
+logdirname = ""
+logpathname string = ""
+errpathname string = "/home/ljt/Projects/NetGo/logs/error.txt" 
+fpl *os.File = nil                      // Pointer to the log file.
+fpe *os.File = nil                      // Pointer to the error file.
+sem *semaphore.Semaphore=nil            // Pointer to the semaphore.
+once sync.Once = sync.Once{}     // Used to ensure we call destructor only once
 )
 
 
@@ -112,56 +115,57 @@ type Logger struct {
     Symbol string                       // Annunciatior to indicate level.
     init   bool                         // Flag to indicate if logger was init.
 }
-
-// NewLogger creates a new logger instance
-func NewLogger() *Logger {
+// ------------------------------------- //
+// NewLogger creates a new logger instance and initializes it. Return the object
+// and nil error is successfull, else return nil and the error.
+// -------------------------------------- //
+func NewLogger() (*Logger,error){       // ------------ NewLogger ----------- //
    l:=&Logger{                          // Our new logger instance.
     Level: 0,                           // Set the log level
     Symbol: "",                         // Set the symbol to empty
     mu: sync.Mutex{},                   // Initialize the mutex
     init: false,                        // Set the init flag to false.
   }                                     // Return the logger instance
-  l.Initialize()                        // Initialize the logger
-  return l                              // Return the logger instance
-}        
+  if err:=l.Initialize();err!=nil{      // Error initializing the logger?
+    return nil,err                      // Yes, return nil object and the error.
+  }                                     // No error, continue.
+  return l,nil                          // Return the logger instance and no error.
+}                                       // ------------ NewLogger ----------- // 
 
 // ----------------------------------------------------------------------------
 // Initializer is meant to be called by NewProxyServer() to initialize the logger
 // and the semaphore, as well as other itialization routines.
 // -----------------------------------------------------------------------------
-func (l *Logger) Initialize() {
+func (l *Logger) Initialize() error{    // ----------- Initialize ----------- //
   exe,err:=os.Executable()              // Ask for Go running binary's path.
   if err!=nil{                          // Error getting the executable?
-    fmt.Fprintf(os.Stderr,"InitLog: cannot determine executable: %v.\n",err)
-    os.Exit(1)                          // Fatal error, exit.
+    return fmt.Errorf("InitLog: cannot determine executable: %w.",err)
   }                                     // Done with error getting executable.
   if real,err:=filepath.EvalSymlinks(exe);err==nil{// Is the executable a symlink?
     exe=real                            // Yes, resolve it and set it.              
   }                                     // Done checking and dereferencing symlinks.
   appname:=getAppname()                 // The app that is calling the logger.
-  sem,err=semaphore.NewSemaphore(appname,"log","ljt",0x5777)// Make a semaphore.
-  if err!=nil{                          // Error creating semaphore?
-    fmt.Fprintf(os.Stderr,"InitLog: cannot create semaphore: %v.\n",err)
-    os.Exit(1)                          // Fatal error, exit.
+  var semerr error                      // Semaphore error.
+  sem,semerr=semaphore.NewSemaphore(appname,"log","ljt",0x7003)// Make a semaphore.
+  if semerr!=nil{                       // Error creating semaphore?
+    return fmt.Errorf("InitLog: cannot create semaphore: %w.",err)
   }                                     // Done checking for err with semaphore.
   proxy:=os.Getenv("PROXY")             // Get the $PROXY symbol's value.
   if proxy==""{                         // Is the proxy symbol set?
-    fmt.Fprintf(os.Stderr,"InitLog: The $PROXY environment variable is nor defined.\n")
-    fmt.Fprintf(os.Stderr,"Fatal error, exitin...\n")
-    os.Exit(1)                          // Exit due to fatal error.
+    return fmt.Errorf("InitLog: The $PROXY environment variable is nor defined.")
   }                                     // Done checking for the proxy symbol.
   logdirname=fmt.Sprintf("%s/logs",proxy)// Set the directory name.
   logpathname=fmt.Sprintf("%s/%s",logdirname,logFilename)// Set the log file name.
   errpathname=fmt.Sprintf("%s/%s",logdirname,errFilename)// Set the error file name.
-  l.init=true                          // Set the init flag to true.
-}
+  l.init=true                           // Set the init flag to true.
+  return nil                            // Return nil error if successfull.
+}                                       // ----------- Initialize ----------- //
 
-func openLogFile() {
-  var err error
+func openLogFile() error{                     // Open the log file.
+  var err error                         // Error opening the log file?
   fpl,err= os.OpenFile(logpathname, os.O_RDWR|os.O_APPEND|os.O_CREATE, 0644)
-  if err != nil {                       // Could we open the log file?
-    fmt.Printf("Failed to open file: %v\n", err)
-    os.Exit(1)                          // Can't do much else
+  if err!=nil{                          // Could we open the log file?
+    return fmt.Errorf("openlogfile: failed to open file: %w", err)
   }                                     // Done checking for error opening log.
   // ---------------------------------- //
   // We should have already built the logpathname, but maybe we forgot to call
@@ -171,20 +175,19 @@ func openLogFile() {
     logpathname=fmt.Sprintf("%s/%s",logdirname,logFilename)
     fpl,err=os.OpenFile(logpathname, os.O_RDWR|os.O_APPEND|os.O_CREATE, 0644)
     if err != nil {                     // Ok now this must really be an error.                 
-      fmt.Printf("Failed to open file: %v\n", err)
-      os.Exit(1)                        // Can't do much else
+      return fmt.Errorf("openlogfile: failed to open file: %v\n", err)
     }                                   // Done checking for error opening log.
   }                                     // Done checking if the log file is open.
   info,err:=os.Stat(logpathname)        // Get the file info.
-  if err != nil {                       // Error getting file info?
+  if err!=nil{                          // Error getting file info?
     openErrorfile();                    // Open the error file.
     fmt.Fprintf(fpe, "Can't stat log file. \"%s\": %v .\n",
       logpathname, err);                // Log that in the error file.
     fmt.Fprintf(fpe, "Fatal error in Logger(), exiting.\n")
-    os.Exit(1)                          // Exit the program.
-  } else {                              // Else we could stat the file.
+    return fmt.Errorf("openlogfile: Can't stat log file: %w.",err)                              // Exit the function.
+  } else{                               // Else we could stat the file.
     siz:=info.Size()                    // Get the file size.
-    if siz >= maxLogSize{               // Have exceeded the max log size?
+    if siz>=maxLogSize{                 // Have exceeded the max log size?
       alreadyDone:=false                // True if proc already renamed.
       fmt.Fprintf(fpl,"%s%d %s%s *** Log file has exceeded maximum size limit of %d bytes. ***\n",
         time.Now().Format(time.RFC3339), siz, getAppname(), getFuncName(), maxLogSize)
@@ -196,28 +199,29 @@ func openLogFile() {
         dt:=time.Now()                  // Get the current date and time.
         newlogpathname+=fmt.Sprintf("%s/log_%s.txt",logdirname, dt.Format(time.RFC3339Nano))
         err:=os.Rename(logpathname, newlogpathname)
-        if err!= nil{                   // Error renaming the log file?
-          fmt.Printf("Failed to rename log file: %v\n", err)
-          os.Exit(1)                    // Exit the program.
+        if err!=nil{                    // Error renaming the log file?
+          return fmt.Errorf("openlogfile: Failed to rename log file: %w", err)
         }                               // Done checking for error renaming log.
       }                                 // Done checking if we have already renamed the file.
       fpl,err=os.OpenFile(logpathname, os.O_RDWR|os.O_APPEND|os.O_CREATE, 0644)
-      if err != nil {
-        fmt.Printf("Failed to open new log file: %v\n", err)
-        os.Exit(1)
-      }
-    }
-  }
-}
+      if err!=nil{                      // Error opening the new log file?
+        return fmt.Errorf("openlogfile: Failed to open new log file: %v\n", err)
+      }                                 // Done checking for error opening new log file.
+    }                                   // Done checking if we have exceeded the max log size.
+  }                                     // Done checking if we could stat the log file.
+  return nil                            // Return nil error if successfull.
+}                                       // ---------- openLogFile ----------- //
 
-func openErrorfile() {
-  var err error
+func openErrorfile() error{             // Open the error file.
+  var err error                         // Error opening the error file?
+  // ---------------------------------- //
+  // Open the error file                //
+  // ---------------------------------- //
   fpe,err=os.OpenFile(errpathname, os.O_RDWR|os.O_APPEND|os.O_CREATE, 0644)
-  if err != nil {
-    fmt.Printf("Failed to open error file: %v\n", err)
-    os.Exit(1)
-  }
-  if fpe == nil {
+  if err!=nil{                          // Error opening the error file?
+    return fmt.Errorf("openerrorfile: Failed to open error file: %v\n", err)
+  }                                     // Done checking for error opening error file.
+  if fpe==nil{                          // Is the error file open?
     // Comment out this block when you've created an App class and Server class.
     // For now we are working without inheritance, and we are a server so
     // we'll write to a log file. In Matt's code, it looks something like this:
@@ -225,28 +229,37 @@ func openErrorfile() {
     //  fmt.Printf("Failed to get file info: %v\n", err)
     //  fmt.Printf("Fatal error in Loggger.openLogFile(), exiting...\n")
     // } 
-    fmt.Printf("Error %v opening the error log file %s\n",
-      err, errpathname)
-    fmt.Printf("Fatal error in Logger(), exiting.\n")
-    os.Exit(1)    
-  }
-}
+    return fmt.Errorf("openlogfile: Error %w opening the error log file %s",
+      err, errpathname)                 // Log that in the error file.  
+  }                                     // Done checking if the error file is open.
+  return nil                            // Return nil error if successfull.
+}                                       // --------- openErrorfile ---------- //
 
 // ------------------------------------ //
-// LogExitRoutine just calls the ExitLog() function
-// and then deletes the semaphore. Call this function in whichever main uses
-// the semaphore.
+// Shutdown flushes & closes all log handles and releases the semaphore exactly
+// once using the sync.Once package. This is to ensure that we don't have multiple
+// goroutines trying to close the log files at the same time, which would cause
+// a panic if they are already closed and try to dereference a nil pointer.
 // ------------------------------------ //
-func (l *Logger) LogExitRoutine() {
-  // ---------------------------------- //
-  // Ensure we call this destructor only once per application (main.go)
-  // ---------------------------------- //
-  once.Do(func(){                       // Do only once when signaled.
-    // Close the log file and release semaphore resources.                  
-    if fpl!=nil{ l.ExitLog("because the application is quitting.") }
-    if sem!=nil  { sem.Close();sem=nil }
-  })                                   // Done with do only once.
-}                                      // --------- LogExitRoutine --------- //
+func (l *Logger) Shutdown() error{      // ----------- Shutdown ------------- //
+  var shuterr error                     // Where to store the shutdown error.
+  once.Do(func(){                       // Do the following exactly once.                     
+    if fpl!=nil{                        // Is the log file open?
+      l.ExitLog("Because we are shutting down the logger.")// Yes, close it.
+    }                                   // Done checking if the log file is open.
+    if fpe!=nil{                        // Is the error file open?
+      l.ExitLog("")                     // Yes, close it.
+    }                                   // Done checking if the error file is open.
+    if sem!=nil{                        // Is the semaphore down?
+      if err:=sem.Close();err!=nil{     // Could we close it?
+        shuterr=fmt.Errorf("shutdown semaphore: %w",err)// No, log that error.
+      }                                 // Done trying to lift the semaphore.
+      sem=nil                           // Remember we closed the semaphore.
+    }                                   // Done checking if we had a semaphore.
+  })                                    // Done doing the shutdown.
+  return shuterr                        // Return the shutdown error.
+}                                       // ----------- Shutdown ------------- //
+
 
 // =========================================================
 // As to not have to call the ExitLog() and a signalHandler
@@ -288,7 +301,6 @@ func (l *Logger) ExitLog(format string, args ...interface{}) {
     }                                   // Done with no reason why.
     fpe.Close(); fpe=nil                // Close the error file.
   }                                     // Done closing the error file.
-  l.LogExitRoutine()                    // Call the exit routine to close the semaphore.
 }                                       // ------------- ExitLog ------------ //
 // ------------------------------------ //
 // Function to clear the log file, before writing to it
@@ -299,34 +311,33 @@ func (l *Logger) clearLogFile (file string) {
 // ------------------------------------ //
 // Function to write to the log file
 // ------------------------------------ //
-func (l *Logger) writeToFile(file,msg string) {
+func (l *Logger) writeToFile(file,msg string) error{
   // Open the file in append mode, create it if it doesn't exist
-  if file == logpathname {
-    openLogFile()
-    _, err := fpl.WriteString(msg)      // Write the log message to the file
-    if err != nil {                     // Error writing to the file?
-        fmt.Printf("Failed to write to file: %v\n", err)// Say so.
-        os.Exit(1)                      // Exit the program
+  if file==logpathname{                 // Is the file the log file?
+    openLogFile()                       // Yes, open the log file.
+    _, err:=fpl.WriteString(msg)        // Write the log message to the file
+    if err!=nil{                        // Error writing to the file?
+      return fmt.Errorf("writetofile(%q): %w",file,err)
     }                                   // Otherwise, continue.
     fpl.Sync()                          // Sync the file to ensure all data is written      
   } else {                              // Open the error file in append mode, create it if it doesn't exist
       openErrorfile()                   // Open the error file.
       _, err := fpe.WriteString(msg)    // Write the log message to the file
-      if err != nil {                   // Error writing to the file?
-        fmt.Printf("Failed to write to file: %v\n", err)
-        os.Exit(1)                      // Exit the program
+      if err!= nil{                     // Error writing to the file?
+        return fmt.Errorf("writetofile(%q): %w",file,err)
       }                                 // Else, continue
       fpe.Sync()                        // Sync the file to ensure all data is written
   }                                     // Done checking which file to write to.
+  return nil                            // Return nil error if successfull.
 }                                       // ---------writeToFile-------- //
 
 // logMessage is the internal log function that facilitates writing logs
 // to the specified text file.
 func (l *Logger) logMessage(level LogLevel, msg string) {
-    if level < l.Level {                // Log level less than current level?
-		return                              // If so, return without logging.
+  if level < l.Level {                  // Log level less than current level?
+	  return                              // If so, return without logging.
 	}                                     // Otherwise, continue.
-    switch level {                      // Set the symbol based on the log level
+  switch level {                        // Set the symbol based on the log level
     case Debug:                         // Debug level?
       l.Symbol = "[DEBUG] "             // Set symbol to [DEBUG]
     case Info:                          // Info level?
@@ -337,7 +348,7 @@ func (l *Logger) logMessage(level LogLevel, msg string) {
       l.Symbol = "! "                   // Set symbol to !
     case Fatal:                         // Fatal level?
       l.Symbol = "@ "                   // Set symbol to !!
-    }                                   // Done setting the symbol
+  }                                     // Done setting the symbol
   // ---------------------------------- //
   // If the message in the buffer is a multiline message we will purge that
   // buffer and set a recursive entrypoint so that it enters the log
@@ -363,8 +374,8 @@ func (l *Logger) logMessage(level LogLevel, msg string) {
   // Lock the semaphore to ensure only one process can write to the file at a time
   // and unlock it when done.
   // ---------------------------------- //
-  sem.Lock("Because we are writing to the text file.")
-  defer sem.Unlock("Because we are done writing to the text file.")
+  sem.Lock("Because we are writing to the log file.")
+  defer sem.Unlock("Because we are done writing to the log file.")
   // -------------------------------- //
   // Get the file size to check if it exceeds 500KiB,
   // if so, clear the log file.
@@ -436,6 +447,7 @@ func (l *Logger) logMessage(level LogLevel, msg string) {
     }                                   // Done with long line. 
   }                                     // Done with while we have to write.
 }                                       // ---------logMessage-------- //
+
 // Deb logs a debug message
 func (l *Logger) Deb(format string, args ...interface{}) bool {
     msg := fmt.Sprintf(format, args...)
@@ -470,4 +482,3 @@ func (l *Logger) Fat(format string, args ...interface{}) bool {
     l.logMessage(Fatal, msg)
     return false
 }
-
