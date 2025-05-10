@@ -13,7 +13,7 @@
 // ============================================================================
 package semaphore
 import (
- "fmt"                                 // For string formatting.
+  "fmt"                                 // For string formatting.
 	"os"                                  // For I/O, syscalls, etc.
   "os/user"                             // For the passwd struct.
 	"syscall"
@@ -25,11 +25,10 @@ import (
 )
 const debug=false
 const (
- semCount      = 3                     // 3 Semaphores per set.
+  semCount      = 3                     // 3 Semaphores per set.
 	perm          = 0o700                 // Owner rwx permissions.
 	initLock      = 1                     // Semaphore initial value for lock.
 	initUserCount = 0                     // Inital value for user count.
- SEM_UNDO      = 0x1000                // Roll back counts on crash or exit.
 )
 // ------------------------------------ //
 // Semaphore structure to wrap a System V semaphore set of size 3.
@@ -37,7 +36,7 @@ const (
 // user count, and the third is the locking semaphore for the user count.
 // ------------------------------------ //
 type Semaphore struct {
- key        int                        // The semaphore key.
+  key        int                        // The semaphore key.
 	id         int                        // The semaphore set ID.
 	who        string                     // The name of the caller.
 	name       string                     // Record keeping for the caller.
@@ -72,20 +71,22 @@ func NewSemaphore(who,name,username string, key int) (*Semaphore, error){
 		syscall.Setegid(gid)                // Set the group ID...
 	}                                     // Done checking if we have a username.
 	id,err:=semget(key,semCount,unix.IPC_CREAT|perm)
-	if err!=nil{                          // Could we create the semaphore?
-	  if errno,ok:=err.(unix.Errno);ok&&errno==unix.EEXIST{// Does it already exist?
-		  id,err=semget(key,semCount,perm)// Yes, so attach to it.
-			if err!=nil{                      // Did we attach to it?
-			  return nil,fmt.Errorf("attach sem (%s): %s: %w",name,ErrSym(err),err)
-			}                                 // Done checking if error attaching.
-		} else{                             // Else we could not create nor attach.
-		  return nil,fmt.Errorf("create sem (%s): %s: %w",name,ErrSym(err),err)
-		}                                   // Done checking if error creating.
-	} else{                               // We created the semaphore.
-	  if err:=initialize(id);err!=nil{    // Did we initialize the semaphore?
-		  return nil,fmt.Errorf("init sem (%s): %s: %w",name,ErrSym(err),err)
-		}                                   // Done checking if error initializing.
-	}                                     // Done trying to initialize semaphore.
+	if err!=nil{                          // Could we create the semaphore?                
+		return nil,fmt.Errorf("attach sem (%s): %s: %w",name,ErrSym(err),err)                          // Done checking if error creating.
+	}                                     // Done checking for error creating semaphore.
+	// ---------------------------------- //
+	// Verify that we have a brand-new set of semaphores by checking the user
+	// count. If the user count is 0, then we initialize the semaphore set.
+	// ---------------------------------- //
+	curr,err:=semctl(id,1,GETVAL,0)       // Get the current value of sem[1].
+	if err!=nil{                          // Did we get the user count?
+	  return nil,fmt.Errorf("semctl GETVAL: (%s): %w",ErrSym(err),err)
+	}                                     // Done checking if error in user count.
+	if curr==0{                           // Are we the first user of this set?
+	  if err:=initialize(id);err!=nil{    // Yes, and could we initialize it?
+		  return nil,fmt.Errorf("initialize sem (%s): %w",ErrSym(err),err)
+		}                                   // Done checking if we could initialize.
+	}                                     // Done checking if we are the first user.
 	s:=&Semaphore{key:key,id:id,who:who,name:name}// Create the semaphore object.
 	if username!=""{                      // Did we change the user ID?
 	  syscall.Seteuid(suid)               // Yes, restore our effective user ID.
@@ -259,7 +260,7 @@ func (s *Semaphore) ClearUserCount() error{
 // ------------------------------------ //
 // Remove deletes the semaphore set immediately.
 // ------------------------------------ //
-func (s *Semaphore) Remove() error{
+func (s *Semaphore) ForceRemove() error{
   if debug{                             // Are we debugging this?
 	  s.logf("Removing semaphore %s with key %d and id %d.\n",s.name,s.key,s.id)
 	}                                     // Done checking if debugging.
@@ -269,10 +270,28 @@ func (s *Semaphore) Remove() error{
 	return nil														// Return no error if we got here.
 }                                       // ------------- Remove ------------- //
 // ------------------------------------ //
+// ForceRemove deletes all semaphores immediately.
+// ------------------------------------ //
+func (s *Semaphore) Remove() error{     //
+  s.mu.Lock()                           // Lock the mutex to protect the sem structure.
+	defer s.mu.Unlock()                   // Unlock the mutex when we are done.
+	if debug{                             // Are we debugging this?
+	  fmt.Fprintf(os.Stderr,"Force removing all semaphores.\n")
+	}                                     // Done checking if debugging.
+	cnt,_:=s.GetUserCount()               // Get the user count.
+	for i:=0;i<=cnt;i++{                  // For each user using this set
+	  s.DecrementUserCount()              // Decrement the user count.
+	}                                     // Done decrementing the user count.
+	if _,err:=semctl(s.id,0,unix.IPC_RMID,0);err!=nil{// Can we remove it?
+	  return fmt.Errorf("remove sem (%s): %s: %w",s.name,ErrSym(err),err)
+	}                                     // Done checking if we can remove it.
+	return nil                            // Return no error if we got here.
+}                                       // ----------- Remove ------------- //
+// ------------------------------------ //
 // Close decrements the user count and removes the semaphore set if the
 // user count is 0.
 // ------------------------------------ //
-func (s *Semaphore) Close() error{
+func (s *Semaphore) Close() error {
   s.mu.Lock()                           // Lock the mutex to protect the sem structure.
 	defer s.mu.Unlock()                   // Unlock the mutex when we are done.
 	if s.closed{                          // Is the sem set already closed?
@@ -337,36 +356,41 @@ func (s *Semaphore) getVal(i int) (int, error){
 func (s *Semaphore) logf(format string, args ...interface{}){
   t:=time.Now()                         // Get the current time.
 	hdr:=fmt.Sprintf("%12d.%09d pid=%d %s::%s ",t.Unix(),t.Nanosecond(),
-	  os.Getpid(),s.who,s.name)
-	fmt.Fprint(os.Stderr,hdr)
+	  os.Getpid(),s.who,s.name)           // Create the header string.
+	fmt.Fprint(os.Stderr,hdr)             // Print the header string.
 	fmt.Fprintf(os.Stderr,format,args...) // Print the formatted string.
 }                                       // ------------- logf -------------- //
 // ------------------------------------ //
 // ErrSym is a wrapper for the unix.Errno type to get the string
 // representation of the error.
 // ------------------------------------ //
-func ErrSym(err error) string{
-  if errno,ok:=err.(unix.Errno);ok{
+func ErrSym(err error) string{          // ------------- ErrSym ------------- //
+  if errno,ok:=err.(unix.Errno);ok{     // Is the error a unix.Errno?
 	  switch errno{                       // Return the symbol for these errors.
-		 case unix.EACCES: return "EACCES"
-			case unix.EEXIST:  return "EEXIST"
-			case unix.EINVAL:  return "EINVAL"
-			case unix.ENOENT:  return "ENOENT"
-			case unix.ENOMEM:  return "ENOMEM"
-			case unix.ENOSPC:  return "ENOSPC"
-			case unix.E2BIG:   return "E2BIG"
-			case unix.EAGAIN:  return "EAGAIN"
-			case unix.EFAULT:  return "EFAULT"
-			case unix.EFBIG:   return "EFBIG"
-			case unix.EIDRM:   return "EIDRM"
-			case unix.EINTR:   return "EINTR"
-			case unix.ERANGE:  return "ERANGE"
+		  case unix.EACCES: return "EACCES" // Permission denied.
+			case unix.EEXIST:  return "EEXIST"// File exists.
+			case unix.EINVAL:  return "EINVAL"// Invalid argument.
+			case unix.ENOENT:  return "ENOENT"// No such file or directory.
+			case unix.ENOMEM:  return "ENOMEM"// Out of memory.
+			case unix.ENOSPC:  return "ENOSPC"// No space left on device.
+			case unix.E2BIG:   return "E2BIG" // Argument list too long.
+			case unix.EAGAIN:  return "EAGAIN"// Resource temporarily unavailable.
+			case unix.EFAULT:  return "EFAULT"// Bad address.
+			case unix.EFBIG:   return "EFBIG" // File too large.
+			case unix.EIDRM:   return "EIDRM" // Identifier removed.
+			case unix.EINTR:   return "EINTR" // Interrupted system call.
+			case unix.ERANGE:  return "ERANGE"// Result too large.
 		}                                   // Done checking for known errors.
 		return errno.Error()                // Return the error string of errno if none.
 	}                                     // Done checking if error is unix.Errno.
 	return err.Error()                    // Return go err string if not unix.Errno.
 }                                       // ------------- ErrSym ------------- //
-
+// ------------------------------------ //
+// ForceUnlock is a wrapper for the initialize function to force unlock
+// the semaphore. This is used to force unlock the semaphore in case
+// the process that locked it is no longer running.
+// ------------------------------------ //
 func (s *Semaphore) ForceUnlock() error{
-  return initialize(s.id)              // Force unlock the semaphore.
-}                                      // ----------- ForceUnlock ----------- //
+  return initialize(s.id)               // Force unlock the semaphore.
+}                                       // ----------- ForceUnlock ----------- //
+
