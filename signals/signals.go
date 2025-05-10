@@ -22,12 +22,24 @@ import (
 	logger "github.com/perazaharmonics/project_name/internal/logger"                 // Our custom log package.
 )
 var (
-  log = logger.NewLogger()              // Our log object.
+  log         *logger.Logger            // Our log object.
 	shutdownCBs []func()                  // Slice of shutdown callbacks
 	mtx         sync.Mutex                // Protect shutdownCBs slice.
 )
 // const debug = true                   // Enables debug logging.
 // ------------------------------------ //
+// SetLogger pernits our main package to hand over the log object to the 
+// signal.go package.
+// ------------------------------------ //
+func SetLogger(l *logger.Logger){       // ----------- SetLogger ------------ //
+  log=l                                 // Set the log object.
+}                                       // ----------- SetLogger ------------ //
+// ------------------------------------ //
+// GetLogger return the log object used in this package.
+// ------------------------------------ //
+func GetLogger() *logger.Logger {       // ----------- GetLogger ------------ //
+	return log                           // Return the log object.
+}
 // RegisterShutdownCB provides a way to register a exit handler or shutdown
 // callback function for external packages (e.g. httpserverm proxyd)
 // that are run when a SIGINT/SIGTERM signal is received.
@@ -41,7 +53,7 @@ func RegisterShutdownCB(cb func()) {    // ------ RegisterShutdownCB -------- //
 // SignalHandler sets up a signal listener that handles SIGHUP for log rotation
 // SIGINT/SIGTERM for graceful shutdown, and SIGQUIT for immediate exit.
 // ------------------------------------ //
-func SignalHandler(ctx context.Context) { // ------- SignalHandler ---------- //
+func SignalHandler(cancel context.CancelFunc) { // ------- SignalHandler ---------- //
   sigCh := make(chan os.Signal, 1)      // A channel to receive OS signals.
 	// ---------------------------------- //
 	// Notify the channel when we receive these signals.
@@ -53,29 +65,28 @@ func SignalHandler(ctx context.Context) { // ------- SignalHandler ---------- //
 	// ---------------------------------- //
 	go func() {                           // On a separate thread.
 	  for {                               // Until we receive a signal..
-		  select {                          // Wait for a signal to act upon.
-			  case sig := <-sigCh:            // Is there a signal on the channel?
-				  switch sig {                  // Yes, what signal is it?
-					  case syscall.SIGHUP:        // It was a SIGHUP signal.
-						  log.Inf("Closing the log file.") // Log rotation.
-							log.ExitLog("Because we received a SIGHUP signal.")
-							log.Inf("Re-opened log file.") // Done handling SIGHUP.
-						case syscall.SIGINT, syscall.SIGTERM: // It was a SIGINT/SIGTERM signal?
-						  log.War("Received %v: Starting graceful shutdown.", sig)
-							runShutdownCBs()          // Run the shutdown callbacks.
-							log.War("Shutdown complete. Exiting.")
-							os.Exit(0)                // Exit the program.
-						case syscall.SIGQUIT:       // Is it a SIGQUIT signal?
-						  log.Err("Received SIGQUIT: Forcing shutdown.")
-							os.Exit(1)                // Exit the program.
-						default:                    // It was something else.
-						  log.Err("Received unknown signal: %v", sig)
-							os.Exit(1)                // Exit the program.
-					}                             // Done handling the signal.
-				case <-ctx.Done():              // Is the context done?
-				  log.War("Context cancelled: Shutting down signal handler.")
-					return                        // Yes, exit the goroutine.
-			}                                 // Done selecting on ctx or sigCh.
+		  sig:=<-sigCh                      // Wait for a signal on the channel.
+			switch sig {                      // Yes, what signal is it?
+				case syscall.SIGHUP:            // It was a SIGHUP signal.
+					log.Inf("Closing the log file.") // Log rotation.
+					log.ExitLog("Because we received a SIGHUP signal.")
+					log.Inf("Re-opened log file.") // Done handling SIGHUP.
+				case syscall.SIGINT, syscall.SIGTERM: // It was a SIGINT/SIGTERM signal?
+					log.War("Received %v: Starting graceful shutdown.", sig)
+					cancel()                      // Cancel the context.
+					runShutdownCBs()              // Run the shutdown callbacks.
+					log.War("Shutdown complete. Exiting.")
+					os.Exit(0)                    // Exit the program.
+				case syscall.SIGQUIT:           // Is it a SIGQUIT signal?
+					log.War("Received SIGQUIT: Forcing shutdown.")
+					runShutdownCBs()              // Run the shutdown callbacks.
+					cancel()                      // Cancel the context.
+					log.War("Shutdown complete. Exiting.")
+					os.Exit(1)                    // Exit the program.
+				default:                        // It was something else.
+					log.Err("Received unknown signal: %v", sig)
+					os.Exit(1)                    // Exit the program.
+			}                                 // Done checking the signal.
 		}                                   // Done waiting for signals.                                   
 	}()                                   // Done spawning the goroutine.
 }                                       // ---------- SignalHandler --------- //
@@ -90,6 +101,15 @@ func runShutdownCBs() {                  // -------- runShutdownCBs --------- //
 	  safeCall(cb)                         // Call the callback function.
 	}                                      // Done calling the callbacks.
 }                                        // -------- runShutdownCBs --------- //
+// ------------------------------------- //
+// InvokeShutdownCBs is a helper function that runs all registered shutdown
+// callback functions in the order they were registered and just wraps around
+// runShutdownCBs. Useful for doing a teardown without having to rely on the
+// signal handler to do it for us.
+// ------------------------------------ //
+func InvokeShutdownCBs() {              // ----- InvokeShutdownCBs -------- //
+	runShutdownCBs()                      // Run the shutdown callbacks.
+}                                       // ------- InvokeShutdownCBs -------- //
 // ------------------------------------- //
 // safeCall is a helper function that executes a shutdown callback function
 // with panic recovery.
