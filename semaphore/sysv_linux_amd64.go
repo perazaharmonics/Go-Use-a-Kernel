@@ -20,17 +20,23 @@ import (
 // This is a shim to make the SysV IPC constants and system calls available in 
 // the new sys/unix
 const (
-  GETVAL = 12                           // The SysV IPC const for get value
-	SETVAL = 16                           // The SysV IPC const for set value
-	IPC_RMID = unix.IPC_RMID              // The SysV IPC const for remove id
+  GETVAL   = 12                         // The SysV IPC const for get value. 
+	SETVAL   = 16                         // The SysV IPC const for set value.
+	IPC_RMID = unix.IPC_RMID              // The SysV IPC const for remove id.
+	SEM_UNDO = 0x1000                     // Rollback counts on crash or exit.	
 )
-
-type sembuf struct {
-	SemNum uint16
-	SemOp  int16
-	SemFlg int16
-	_      uint16 // Padding to make the struct 8 bytes
-}
+// ------------------------------------ //
+// On x86_64 architecture, the kernel expects the memory layout of the 
+// System V semaphore buffer to be 8 bytes. So we need to add a padding
+// field to the sembuf struct to make it match the kernel's expected layout.
+// ------------------------------------ //
+// sembuf is the structure used to pass semaphore operations
+type sembuf struct {                    // Our sembuf struct
+	SemNum uint16                         // Semaphore number
+	SemOp  int16                          // Semaphore operation
+	SemFlg int16                          // Operation flags
+	_      uint16                         // The aforementioned padding field.
+}                                       // -------------- sembuf ------------ //
 // ------------------------------------ //
 // semget is a wrapper for the Sys_semget() syscall
 // ------------------------------------ //
