@@ -88,7 +88,7 @@ const (
 var (
 logdirname = ""
 logpathname string = ""
-errpathname string = "/home/ljt/Projects/NetGo/logs/error.txt" 
+errpathname string = "/home/perazaharmonics/Projects/NetGo/logs/error.txt" 
 fpl *os.File = nil                      // Pointer to the log file.
 fpe *os.File = nil                      // Pointer to the error file.
 sem *semaphore.Semaphore=nil            // Pointer to the semaphore.
@@ -146,7 +146,7 @@ func (l *Logger) Initialize() error{    // ----------- Initialize ----------- //
   }                                     // Done checking and dereferencing symlinks.
   appname:=getAppname()                 // The app that is calling the logger.
   var semerr error                      // Semaphore error.
-  sem,semerr=semaphore.NewSemaphore(appname,"log","pharm",0x7003)// Make a semaphore.
+  sem,semerr=semaphore.NewSemaphore(appname,"log","perazaharmonics",0x7003)// Make a semaphore.
   if semerr!=nil{                       // Error creating semaphore?
     return fmt.Errorf("InitLog: cannot create semaphore: %w.",err)
   }                                     // Done checking for err with semaphore.
