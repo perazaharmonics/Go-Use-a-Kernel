@@ -12,9 +12,8 @@
 ==============================================================================
 */
 package httpserver
-
 import (
-	logger "github.com/perazaharmonics/project_name/internal/logger"              // Our custom log package.
+	//logger "github.com/ljt/ProxyServer/internal/logger"              // Our custom log package.
 	"github.com/perazaharmonics/project_name/config"         // Our configuration file
 	"github.com/perazaharmonics/project_name/internal/utils" // Our Handlers and Callbacks functions
 	"bytes"                            // For byte buffer operations.
@@ -32,7 +31,7 @@ import (
 	"time"                             // For time and duration
 )
 
-var log = logger.NewLogger()            // Logger instance for logging
+var log = utils.GetLogger()             // Logger instance for logging
 //const debug = true                    // Enables debug logging.
 var execCommandContext = exec.CommandContext // For executing external commands with context.
 // ------------------------------------ //
@@ -294,6 +293,12 @@ func (s *HttpServer) GetRotateScript() string {
 // ------------------------------------ //
 func (s *HttpServer) LivenessProbe(w http.ResponseWriter, r *http.Request) {
 	log.Inf("Received \"healthz\" request from %s", r.RemoteAddr)
+	if s.isready {                        // Branch for manual liveness probe.
+	  w.WriteHeader(http.StatusOK)        // We are OK so write HTTP OK header.
+		w.Write([]byte("OK"))               // and send an OK msg to K8s API.
+		log.Inf("Sent \"OK\" status message to HTTP server (manual liveness).")
+		return                              // Done with manual liveness probe.
+	}                                     // Done with manual liveness probe.
 	if time.Since(s.now) > s.lpwt {       // Have we waited longer than lpwt?
 		w.WriteHeader(http.StatusOK)        // Yes, so write HTTP OK header.
 		w.Write([]byte("OK"))               // And send a OK msg to K8.
@@ -392,6 +397,9 @@ func (s *HttpServer) ReloadProbe(w http.ResponseWriter, r *http.Request) {
 	// Spawn a goroutine to reload the config file concurrently.
 	// This is done to avoid blocking the main thread.
 	// ---------------------------------- //
+	log.Inf("Received \"reloadz\" request from %s", r.RemoteAddr)
+	s.mapmtx.Lock()                       // Lock mutex for exclusive access.
+	defer s.mapmtx.Unlock()               // Unlock the mutex when done.
 	go func() {                           // Start a new goroutine to reload cfg file.
 		if err:=s.LoadMappings();err!=nil { // Could we reload the config file?
 		  log.Err("Could not reload config file %s: %v", s.cfgp, err)
@@ -403,6 +411,7 @@ func (s *HttpServer) ReloadProbe(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusAccepted)    // Write HTTP Accepted header.
 	log.Inf("Reload initiated for config file %s", s.cfgp)
 	w.Write([]byte("Reload initiated"))   // Send a reload init msg to K8s API.
+	log.Inf("Sent \"Reload initiated\" status message to HTTP server.")
 }                                       // ---------- reloadHandler --------- //
 // ------------------------------------ //
 //  1. We execute reset.sh which runs CheckLogFile.go which sends a SIGHUP
@@ -413,7 +422,7 @@ func (s *HttpServer) ReloadProbe(w http.ResponseWriter, r *http.Request) {
 //
 // the K8s API.
 // ------------------------------------ //
-func (s *HttpServer) RotateLogs(w http.ResponseWriter, r *http.Request) {
+func (s *HttpServer) RotateLogsProbe(w http.ResponseWriter, r *http.Request) {
 	log.Inf("Received log rotation request from %s", r.RemoteAddr)
 	// ---------------------------------- //
 	// Add a context with a timeout in case the script hangs.
@@ -515,33 +524,8 @@ func (s *HttpServer) MetricProbe(w http.ResponseWriter, r *http.Request) {
 // a multiplexer to handle the HTTP requests. It returns an error if any error
 // occurs while starting the server othwerwise it returns nil.
 // ------------------------------------ //
-func (s *HttpServer) Start(mux *http.ServeMux) error {
-	s.SetEnvTimes()                       // Set the environment variable times.
-	addr := fmt.Sprintf(":%d", s.port)    // The address to listen on.
-	srv := &http.Server{                  // The native GO HTTP server object.
-		Addr:              addr,            // The address to listen on.
-		Handler:           mux,             // The request hanlder is a multiplexer.
-		MaxHeaderBytes:    1 << 20,         // 1 MiB max header size (experimental).
-		ReadHeaderTimeout: 15 * time.Second,// Read header timeout.
-		WriteTimeout:      20 * time.Second,// Write timeout.
-		ReadTimeout:       20 * time.Second,// Read timeout.
-	}                                     // Done with the HTTP server object.
-	// ---------------------------------- //
-	// Register the graceful shutdown callback function.
-	// to clean up the server when it is stopped and handle shutdown gracefully.
-	// ---------------------------------- //
-	utils.RegisterShutdownCB(func() {     // Our exit handler.
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()                      // Cancel the context when done.
-		log.Inf("Shutting down HTTP server on port :%d", s.port)
-		if err := srv.Shutdown(ctx); err != nil { // Error shutting down server?
-			log.Err("Error shutting down HTTP server: %v", err) // Yes, log it.
-		} else {                            // Else we are shutting down.
-			log.Inf("HTTP server on port %d shut down successfully", s.port)
-		}                                   // Done with shutting down the server.
-	})                                    // Done registering exit handler.
-	log.Inf("Starting HTTP server on port %d", s.port)
-	return srv.ListenAndServe()           // Start the HTTP server.
+func (s *HttpServer) Start(ctx context.Context,mux *http.ServeMux) error {
+  return s.StartWithContext(ctx, mux) // Start the server with context.
 }                                       // ------------ Start --------------- //
 // ------------------------------------ //
 // Function to start the HTTP server with Context. This is more idiomatic of 
@@ -561,6 +545,18 @@ func (s *HttpServer) StartWithContext(ctx context.Context, mux *http.ServeMux) e
 		ReadTimeout:       20*time.Second,  // Read timeout.
 	}                                     // Done with the HTTP server object.
 	// ---------------------------------- //
+	// Register the utils.ShutdownCB function to be called when we receive a 
+	// signal to shutdown by the SignalHandler.
+	// ---------------------------------- //
+	utils.RegisterShutdownCB(func(){      // Our shutdown cb register function.
+	  log.Inf("Received shutdown signal, shutting down HTTP server.")
+		shutctx,cancel:=context.WithTimeout(context.Background(),10*time.Second)
+		defer cancel()                      // Cancel context when program exits.
+		if err:=srv.Shutdown(shutctx);err!=nil{// Could we shutdown the server?
+		  log.Err("Could not shutdown HTTP server: %v",err)
+		}                                   // Done with shutdown error.
+	})                                    // Done registering shutdowncb with signal handler.
+	// ---------------------------------- //
 	// Run the ListenAndServe in a separate thread to avoid blocking the
 	// main thread. This allows us to use the context to control the server.
 	// ---------------------------------- //
@@ -579,6 +575,7 @@ func (s *HttpServer) StartWithContext(ctx context.Context, mux *http.ServeMux) e
 		  // ------------------------------ //
 			// Everything finished correctly so we can shutdon with grace.
 			// ------------------------------ //
+			log.Inf("Context done signal received, shutting down HTTP server.")
 			shutctx,cancel:=context.WithTimeout(context.Background(),10*time.Second)
 			defer cancel()                    // Cancel context when program exits.
 			log.Inf("Shutting down HTTP server on port :%d",s.port)
