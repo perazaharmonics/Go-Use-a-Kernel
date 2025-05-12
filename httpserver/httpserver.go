@@ -13,7 +13,7 @@
 */
 package httpserver
 import (
-	//logger "github.com/ljt/ProxyServer/internal/logger"              // Our custom log package.
+	"github.com/perazaharmonics/project_name/internal/logger"              // Our custom log package.
 	"github.com/perazaharmonics/project_name/config"         // Our configuration file
 	"github.com/perazaharmonics/project_name/internal/utils" // Our Handlers and Callbacks functions
 	"bytes"                            // For byte buffer operations.
@@ -30,8 +30,6 @@ import (
 	"sync/atomic"                      // For atomic operations
 	"time"                             // For time and duration
 )
-
-var log = utils.GetLogger()             // Logger instance for logging
 //const debug = true                    // Enables debug logging.
 var execCommandContext = exec.CommandContext // For executing external commands with context.
 // ------------------------------------ //
@@ -54,6 +52,7 @@ type HttpServer struct {                // HTTP server object.
 	isready bool                          // Flag to signal server readiness.
 	mapmtx  sync.RWMutex                  // Mtx to protect concurrent reloads  of mappings.
 	maps    []config.Mapping              // The mappings from the config file.
+	log     logger.Log                    // Logger object
 	cfgp    string                        // The path to the config file.
 	vrs     string                        // The version set at build time.
 	rscript string                        // The path to the reset script.
@@ -67,9 +66,9 @@ type HttpServer struct {                // HTTP server object.
 // It takes the port number, the path to the config file, and the version
 // as arguments. It returns a pointer to the HTTP server object.
 // ------------------------------------ //
-func NewHttpServer(p int, c, v string) *HttpServer {
+func NewHttpServer(p int, c, v string, log logger.Log) *HttpServer {
 	if v == "" {	                        // Was the 'v' field empty?
-		vdd := "/home/ljt/Projects/NetGo/ProxyServer/Proxyd.vdd"
+		vdd := "/home/perazaharmonics/Projects/NetGo/project_name/Proxyd.vdd"
 	  f, err := os.Open(vdd)                // Open the version file.
 		if err != nil {                     // Could we open the version file?
 			log.Err("Could not open version file %s: %v", vdd, err)
@@ -106,10 +105,11 @@ func NewHttpServer(p int, c, v string) *HttpServer {
 		rpwt:    15 * time.Second,          // Readiness probe wait time.
 		isready: false,                     // Flag to signal server readiness.
 		mapmtx:  sync.RWMutex{},            // Mtx to protect concurrent reloads of mappings.
+		log:     log,                       // Logger object.
 		maps:    nil,                       // The mappings from the config file.
 		cfgp:    c,                         // The path to the config file.
 		vrs:     v,                         // The version set at build time.
-		rscript: "/home/ljt/Projects/NetGo/logs/reset.sh",
+		rscript: "/home/perazaharmonics/Projects/NetGo/logs/reset.sh",
 		ncnx:    0,                         // The number of connections to the server.
 		chit:    0,                         // The number of cache hits.
 		cmiss:   0,                         // The number of cache misses.
@@ -264,14 +264,14 @@ func (s *HttpServer) getEnvTimes(t string) (d time.Duration, err error) {
 func (s *HttpServer) SetEnvTimes() (err error) {
 	s.lpwt, err = s.getEnvTimes("WAIT_LIVENESS_TIME")
 	if err != nil {                       // Defined the liveness probe time?
-		log.War("Environment variable \"WAIT_LIVENESS_TIME\" not set. %v", err)
-		log.Inf("Setting \"WAIT_LIVENESS_TIME\" to default of 5s.")
+		s.log.War("Environment variable \"WAIT_LIVENESS_TIME\" not set. %v", err)
+		s.log.Inf("Setting \"WAIT_LIVENESS_TIME\" to default of 5s.")
 		s.lpwt = 5 * time.Second            // No, set to default at 5s.
 	}                                     // Done with liveness probe time not defined.
 	s.rpwt, err = s.getEnvTimes("WAIT_READINESS_TIME")
 	if err != nil {                       // Defined the readiness probe time?
-		log.War("Environment variable \"WAIT_READINESS_TIME\" not set. %v", err)
-		log.Inf("Setting \"WAIT_READINESS_TIME\" to default of 15s.")
+		s.log.War("Environment variable \"WAIT_READINESS_TIME\" not set. %v", err)
+		s.log.Inf("Setting \"WAIT_READINESS_TIME\" to default of 15s.")
 		s.rpwt = 15 * time.Second           // No, set to default at 15 seconds.
 	}                                     // Done with readiness probe time not defined.
 	return err                            // Return the error code.
@@ -292,21 +292,21 @@ func (s *HttpServer) GetRotateScript() string {
 // HTTP OK status. If not, it returns an HTTP Service Unavailable status.
 // ------------------------------------ //
 func (s *HttpServer) LivenessProbe(w http.ResponseWriter, r *http.Request) {
-	log.Inf("Received \"healthz\" request from %s", r.RemoteAddr)
+	s.log.Inf("Received \"healthz\" request from %s", r.RemoteAddr)
 	if s.isready {                        // Branch for manual liveness probe.
 	  w.WriteHeader(http.StatusOK)        // We are OK so write HTTP OK header.
 		w.Write([]byte("OK"))               // and send an OK msg to K8s API.
-		log.Inf("Sent \"OK\" status message to HTTP server (manual liveness).")
+		s.log.Inf("Sent \"OK\" status message to HTTP server (manual liveness).")
 		return                              // Done with manual liveness probe.
 	}                                     // Done with manual liveness probe.
 	if time.Since(s.now) > s.lpwt {       // Have we waited longer than lpwt?
 		w.WriteHeader(http.StatusOK)        // Yes, so write HTTP OK header.
 		w.Write([]byte("OK"))               // And send a OK msg to K8.
-		log.Inf("Sent \"OK\" status message to HTTP server.")
+		s.log.Inf("Sent \"OK\" status message to HTTP server.")
 	} else {                              // Else we have not waited that long.
 		w.WriteHeader(http.StatusServiceUnavailable) // Say we are unavailable.
 		w.Write([]byte("Not OK"))           // Send a Not OK msg to K8s API.
-		log.Inf("Sent \"Not OK\" status message to HTTP server.")
+		s.log.Inf("Sent \"Not OK\" status message to HTTP server.")
 	}                                     // Done with not waiting enough.
 }                                       // -------- livenessProbe ----------- //
 // ------------------------------------ //
@@ -316,23 +316,23 @@ func (s *HttpServer) LivenessProbe(w http.ResponseWriter, r *http.Request) {
 // HTTP OK status. If not, it returns an HTTP Service Unavailable status.
 // ------------------------------------ //
 func (s *HttpServer) ReadinessProbe(w http.ResponseWriter, r *http.Request) {
-	log.Inf("Received \"readyz\" request from %s", r.RemoteAddr)
+	s.log.Inf("Received \"readyz\" request from %s", r.RemoteAddr)
 	// Did we manually mark the server as ready?
 	if s.isready {
 	  w.WriteHeader(http.StatusOK)        // Yes, so write HTTP OK header.
 		w.Write([]byte("Ready"))            // and send a ready msg to K8s API.
-		log.Inf("Sent \"Ready\" status message to HTTP server (manual readiness).")
+		s.log.Inf("Sent \"Ready\" status message to HTTP server (manual readiness).")
 		return
 	}
 	// Have we waited longer than rpwt, and has the previous job finished?
 	if time.Since(s.now) > s.rpwt {
 		w.WriteHeader(http.StatusOK)        // Yes, so write HTTP OK header.
 		w.Write([]byte("Ready"))            // and send a ready msg to K8s API.
-		log.Inf("Sent \"Ready\" status message to HTTP server.")
+		s.log.Inf("Sent \"Ready\" status message to HTTP server.")
 	} else {                              // Else we have not waited that long.
 		w.WriteHeader(http.StatusServiceUnavailable) // Say we are unavailable.
 		w.Write([]byte("Not Ready"))        // Send a Not Ready msg to K8s API.
-		log.Inf("Sent \"Not Ready\" status message to HTTP server")
+		s.log.Inf("Sent \"Not Ready\" status message to HTTP server")
 	}                                     // Done with not waiting enough.
 }                                       // -------- readinessProbe ---------- //
 // ------------------------------------ //
@@ -340,10 +340,10 @@ func (s *HttpServer) ReadinessProbe(w http.ResponseWriter, r *http.Request) {
 // It checks if the server is alive and returns an HTTP OK status.
 // ------------------------------------ //
 func (s *HttpServer) PingProbe(w http.ResponseWriter, r *http.Request) {
-	log.Inf("Received \"pingz\" request from %s", r.RemoteAddr)
+	s.log.Inf("Received \"pingz\" request from %s", r.RemoteAddr)
 	w.WriteHeader(http.StatusOK) // Write HTTP OK header.
 	w.Write([]byte("pong"))      // Notify Kubernetes API we are listening.
-	log.Inf("Sent \"pong\" as a response to ping request.")
+	s.log.Inf("Sent \"pong\" as a response to ping request.")
 } // ------------ ping ---------------- //
 // ------------------------------------ //
 // Version probe handler verifies the version of the Proxy Server application
@@ -351,10 +351,10 @@ func (s *HttpServer) PingProbe(w http.ResponseWriter, r *http.Request) {
 // as a response to the Kubernetes API.
 // ------------------------------------ //
 func (s *HttpServer) VersionProbe(w http.ResponseWriter, r *http.Request) {
-	log.Inf("Received \"versionz\" request from %s", r.RemoteAddr)
+	s.log.Inf("Received \"versionz\" request from %s", r.RemoteAddr)
 	w.WriteHeader(http.StatusOK)          // Write HTTP OK header.
 	fmt.Fprintf(w, "Proxy Version: %s\n", s.vrs) // Send the version to K8s API.
-	log.Inf("Sent \"version\" as a response to version request.")
+	s.log.Inf("Sent \"version\" as a response to version request.")
 }                                       // ----------- versionHandler ------- //
 // ------------------------------------ //
 // Status probe handler verifies the status of the server.
@@ -362,12 +362,12 @@ func (s *HttpServer) VersionProbe(w http.ResponseWriter, r *http.Request) {
 // It also returns the liveness and readiness probe wait times.
 // ------------------------------------ //
 func (s *HttpServer) StatusProbe(w http.ResponseWriter, r *http.Request) {
-	log.Inf("Received \"statusz\" request from %s", r.RemoteAddr)
+	s.log.Inf("Received \"statusz\" request from %s", r.RemoteAddr)
 	if s.isready {                        // Is the server ready?
 		w.WriteHeader(http.StatusOK)        // Yes, write OK hdr and provide status.
 		fmt.Fprintf(w, "Proxyd up since: %s\nLiveness delay: %s\nReadiness delay: %s\n",
 			s.now.Format(time.RFC3339Nano), s.lpwt, s.rpwt)
-		log.Inf("Sent status message to HTTP server.")
+		s.log.Inf("Sent status message to HTTP server.")
 	} else {                              // Else the server is not ready.
 		w.WriteHeader(http.StatusServiceUnavailable) // Say we are unavailable.
 		w.Write([]byte("Server status unavailable."))
@@ -378,12 +378,12 @@ func (s *HttpServer) StatusProbe(w http.ResponseWriter, r *http.Request) {
 // using. It returns the mappings as a JSON response to the Kubernetes API.
 // ------------------------------------ //
 func (s *HttpServer) MapProbe(w http.ResponseWriter, r *http.Request) {
-	log.Inf("Received a \"mapz\" request from %s", r.RemoteAddr)
+	s.log.Inf("Received a \"mapz\" request from %s", r.RemoteAddr)
 	w.Header().Set("Content-Type", "application/json") // Set the content type to JSON
 	s.mapmtx.RLock()                      // Lock mutex for exclusive read access.
 	defer s.mapmtx.RUnlock()              // Unlock the mutex when done.
 	json.NewEncoder(w).Encode(s.maps)     // Encode the mappings to JSON and send to K8s API.                                     // Done printing the mappings.
-	log.Inf("Sent pod mapping as a response to map request.")
+	s.log.Inf("Sent pod mapping as a response to map request.")
 }                                       // ----------- mapHandler ------------ //
 // ------------------------------------ //
 // Reload probe handler verifies the mappings that the Proxy Server is currently
@@ -392,26 +392,26 @@ func (s *HttpServer) MapProbe(w http.ResponseWriter, r *http.Request) {
 // It spawns a goroutine to reload the mappings concurrently.
 // ------------------------------------ //
 func (s *HttpServer) ReloadProbe(w http.ResponseWriter, r *http.Request) {
-	log.Inf("Received a \"reloadz\" request from %s", r.RemoteAddr)
+	s.log.Inf("Received a \"reloadz\" request from %s", r.RemoteAddr)
 	// ---------------------------------- //
 	// Spawn a goroutine to reload the config file concurrently.
 	// This is done to avoid blocking the main thread.
 	// ---------------------------------- //
-	log.Inf("Received \"reloadz\" request from %s", r.RemoteAddr)
+	s.log.Inf("Received \"reloadz\" request from %s", r.RemoteAddr)
 	s.mapmtx.Lock()                       // Lock mutex for exclusive access.
 	defer s.mapmtx.Unlock()               // Unlock the mutex when done.
 	go func() {                           // Start a new goroutine to reload cfg file.
 		if err:=s.LoadMappings();err!=nil { // Could we reload the config file?
-		  log.Err("Could not reload config file %s: %v", s.cfgp, err)
+		  s.log.Err("Could not reload config file %s: %v", s.cfgp, err)
 			http.Error(w, "Could not reload config file.", http.StatusInternalServerError)
 			return                            // No, return.
 		}                                   // Done checking for error loading cfg.
 		atomic.AddUint64(&s.nload, 1)       // We have reloaded this many times.
 	}()                                   // Done with goroutine to reload cfg file.
 	w.WriteHeader(http.StatusAccepted)    // Write HTTP Accepted header.
-	log.Inf("Reload initiated for config file %s", s.cfgp)
+	s.log.Inf("Reload initiated for config file %s", s.cfgp)
 	w.Write([]byte("Reload initiated"))   // Send a reload init msg to K8s API.
-	log.Inf("Sent \"Reload initiated\" status message to HTTP server.")
+	s.log.Inf("Sent \"Reload initiated\" status message to HTTP server.")
 }                                       // ---------- reloadHandler --------- //
 // ------------------------------------ //
 //  1. We execute reset.sh which runs CheckLogFile.go which sends a SIGHUP
@@ -423,7 +423,7 @@ func (s *HttpServer) ReloadProbe(w http.ResponseWriter, r *http.Request) {
 // the K8s API.
 // ------------------------------------ //
 func (s *HttpServer) RotateLogsProbe(w http.ResponseWriter, r *http.Request) {
-	log.Inf("Received log rotation request from %s", r.RemoteAddr)
+	s.log.Inf("Received log rotation request from %s", r.RemoteAddr)
 	// ---------------------------------- //
 	// Add a context with a timeout in case the script hangs.
 	// It should not hang, but just in case.
@@ -431,21 +431,21 @@ func (s *HttpServer) RotateLogsProbe(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Second)
 	defer cancel()                        // Cancel context when done.
 	script := s.GetRotateScript()				 // Get the script to run.
-	log.Inf("Executing log rotation script %s", script)
+	s.log.Inf("Executing log rotation script %s", script)
 	cmd := execCommandContext(ctx, script)// Create a command with this ctx to run the script.
 	if err := cmd.Run(); err != nil {     // Run cmd; handle error.
 		http.Error(w, "Log rotation failed.", http.StatusInternalServerError)
-		log.Err("Log rotation failed: %v", err)
+		s.log.Err("Log rotation failed: %v", err)
 		return                              // Yes, return. Error running script.
 	}                                     // Done running script or handling err.
 	if ctx.Err() == context.DeadlineExceeded { // Did the script timeout?
 		http.Error(w, "Log rotation timed out.", http.StatusInternalServerError)
-		log.Err("Log rotation script timed out.")
+		s.log.Err("Log rotation script timed out.")
 		return                              // Yes, return. Timed out resetting logs.
 	}                                     // Done checking for timeout.
 	w.WriteHeader(http.StatusAccepted)    // Write HTTP Accepted header.
 	fmt.Fprintln(w, "Log rotation successful")// Send success message to K8s API.
-	log.Inf("Log rotation completed successfully.")
+	s.log.Inf("Log rotation completed successfully.")
 }                                       // ---------- rotateLogs ------------ //
 // ------------------------------------ //
 // Metric probe handler verifies the metrics that the Proxy Server is currently
@@ -455,7 +455,7 @@ func (s *HttpServer) RotateLogsProbe(w http.ResponseWriter, r *http.Request) {
 // the performance of the Proxy Server.
 // ------------------------------------ //
 func (s *HttpServer) MetricProbe(w http.ResponseWriter, r *http.Request) {
-	log.Inf("Received \"metricz\" request from %s", r.RemoteAddr)
+	s.log.Inf("Received \"metricz\" request from %s", r.RemoteAddr)
 	now := time.Now()                     // Get the current time.
 	uptime := now.Sub(s.now)              // The server's uptime.
 	// ---------------------------------- //
@@ -468,41 +468,41 @@ func (s *HttpServer) MetricProbe(w http.ResponseWriter, r *http.Request) {
 	msg := "# HELP proxyd_uptime_seconds Seconds since proxyd started\n"
 	msg += "# TYPE proxyd_uptime_seconds counter\n"
 	msg += fmt.Sprintf("proxyd_uptime_seconds %f\n", uptime.Seconds())
-	log.Inf("Sent \"uptime\" as a response to metric request.")
+	s.log.Inf("Sent \"uptime\" as a response to metric request.")
 	// ---------------------------------- //
 	// Concatenate the number of TCP connections to K8s API.
 	// ---------------------------------- //
 	msg += "# HELP proxyd_connections_total Total number of TCP connections\n"
 	msg += "# TYPE proxyd_connections_total counter\n"
 	msg += fmt.Sprintf("proxyd_connections_total %d\n", atomic.LoadUint64(&s.ncnx))
-	log.Inf("Sent \"connections\" as a response to metric request.")
+	s.log.Inf("Sent \"connections\" as a response to metric request.")
 	// ---------------------------------- //
 	// Send the number of proxyd cache hits to K8s API.
 	// ---------------------------------- //
 	msg += "# HELP proxyd_cache_hits Cache hits when resolving pod IP addresses\n"
 	msg += "#TYPE proxyd_cache_hits counter\n"
 	msg += fmt.Sprintf("proxyd_cache_hits %d\n", atomic.LoadUint64(&s.chit))
-	log.Inf("Sent \"cache hits\" as a response to metric request.")
+	s.log.Inf("Sent \"cache hits\" as a response to metric request.")
 	// ---------------------------------- //
 	// Send the number of proxyd cache misses to K8s API.
 	// ---------------------------------- //
 	msg += "#HELP proxyd_cache_misses Cache misses when resolving pod IP addresses\n"
 	msg += "#TYPE proxyd_cache_misses counter\n"
 	msg += fmt.Sprintf("proxyd_cache_misses %d\n", atomic.LoadUint64(&s.cmiss))
-	log.Inf("Sent \"cache misses\" as a response to metric request.")
+	s.log.Inf("Sent \"cache misses\" as a response to metric request.")
 	// ---------------------------------- //
 	// Send the number of proxyd reloads to K8s API.
 	// ---------------------------------- //
 	msg += "#HELP proxyd_reloads Total number of config reloads\n"
 	msg += "#TYPE proxyd_reloads counter\n"
 	msg += fmt.Sprintf("proxyd_reloads %d\n", atomic.LoadUint64(&s.nload))
-	log.Inf("Sent \"reloads\" as a response to metric request.")
+	s.log.Inf("Sent \"reloads\" as a response to metric request.")
 	// ---------------------------------- //
 	// Pack the buffer with the metrics response message.
 	// ---------------------------------- //
 	length, err := PackBuffer(msg, buf)   //
 	if err != nil {                       // Error packing the buffer?
-		log.Err("Failed to pack buffer for metrics response: %v", err)
+		s.log.Err("Failed to pack buffer for metrics response: %v", err)
 		http.Error(w, "Failed to pack buffer for metrics response.", http.StatusInternalServerError)
 		return                              // Yes, return we can't send metrics.
 	}                                     // Done packing buf and checking error.
@@ -512,12 +512,12 @@ func (s *HttpServer) MetricProbe(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/plain; version=0.0.4")
 	w.Header().Set("Content-Length", fmt.Sprintf("%d", length))
 	if _, err := w.Write(buf.Bytes()); err != nil {
-		log.Err("Failed to write metrics response: %v", err)
+		s.log.Err("Failed to write metrics response: %v", err)
 		http.Error(w, "Failed to write metrics response.", http.StatusInternalServerError)
 		return                              // Yes, return we can't send metrics.
 	}                                     // Done writing the metrics response.
-	log.Inf("Sent metrics response to K8s API.")
-	log.Inf("Metrics response: %s", buf.String()) // Print the metrics response.
+	s.log.Inf("Sent metrics response to K8s API.")
+	s.log.Inf("Metrics response: %s", buf.String()) // Print the metrics response.
 }                                       // ----------- MetricHandler -------- //
 // ------------------------------------ //
 // Function to launch the HTTP server. It takes as an argument the
@@ -549,11 +549,11 @@ func (s *HttpServer) StartWithContext(ctx context.Context, mux *http.ServeMux) e
 	// signal to shutdown by the SignalHandler.
 	// ---------------------------------- //
 	utils.RegisterShutdownCB(func(){      // Our shutdown cb register function.
-	  log.Inf("Received shutdown signal, shutting down HTTP server.")
+	  s.log.Inf("Received shutdown signal, shutting down HTTP server.")
 		shutctx,cancel:=context.WithTimeout(context.Background(),10*time.Second)
 		defer cancel()                      // Cancel context when program exits.
 		if err:=srv.Shutdown(shutctx);err!=nil{// Could we shutdown the server?
-		  log.Err("Could not shutdown HTTP server: %v",err)
+		  s.log.Err("Could not shutdown HTTP server: %v",err)
 		}                                   // Done with shutdown error.
 	})                                    // Done registering shutdowncb with signal handler.
 	// ---------------------------------- //
@@ -562,7 +562,7 @@ func (s *HttpServer) StartWithContext(ctx context.Context, mux *http.ServeMux) e
 	// ---------------------------------- //
 	errchan:=make(chan error,1)           // Channel to receive errors from the server.
 	go func(){                            // Start a new goroutine to run the server.
-	  log.Inf("Starting HTTP server on port %d",s.port)
+	  s.log.Inf("Starting HTTP server on port %d",s.port)
 		errchan<-srv.ListenAndServe()  // Start the HTTP server send err to channel.
 	}()                                   // Done with goroutine to run the server.
 	// ---------------------------------- //
@@ -575,10 +575,10 @@ func (s *HttpServer) StartWithContext(ctx context.Context, mux *http.ServeMux) e
 		  // ------------------------------ //
 			// Everything finished correctly so we can shutdon with grace.
 			// ------------------------------ //
-			log.Inf("Context done signal received, shutting down HTTP server.")
+			s.log.Inf("Context done signal received, shutting down HTTP server.")
 			shutctx,cancel:=context.WithTimeout(context.Background(),10*time.Second)
 			defer cancel()                    // Cancel context when program exits.
-			log.Inf("Shutting down HTTP server on port :%d",s.port)
+			s.log.Inf("Shutting down HTTP server on port :%d",s.port)
 			return srv.Shutdown(shutctx)      // Shutdown the server send context into it.
 		case err:=<-errchan:                // We received an error from the server.
 		  // ------------------------------ //
@@ -591,15 +591,15 @@ func (s *HttpServer) StartWithContext(ctx context.Context, mux *http.ServeMux) e
 // Function to read configuration and load mappings into the object.
 // ------------------------------------ //
 func (s *HttpServer) LoadMappings() error {
-  conf,err:=config.ReadConfig(s.cfgp)   // Read the config file.
+  conf,err:=config.ReadConfig(s.cfgp,s.log)   // Read the config file.
 	if err!=nil {										      // Could we read the config file?
-		log.Err("Could not read config file %s: %v", s.cfgp, err)
+		s.log.Err("Could not read config file %s: %v", s.cfgp, err)
 		return err                          // No, return the error.
 	}                                     // Done with can't read config file.
 	s.mapmtx.Lock()                       // Lock the mutex for writing.
 	s.maps = conf.Mappings                // Load the mappings into the object.
 	s.mapmtx.Unlock()     	              // Unlock the mutex.
-	log.Inf("Loaded %d mappings from config file %s", len(s.maps), s.cfgp)
+	s.log.Inf("Loaded %d mappings from config file %s", len(s.maps), s.cfgp)
 	return nil                            // Return nil, we are done.                          
 }                                       // ----------- LoadMappings --------- //
 // ------------------------------------ //
@@ -607,28 +607,28 @@ func (s *HttpServer) LoadMappings() error {
 // It is used for debugging purposes.
 // ------------------------------------ //
 func (s *HttpServer) PrintObject() {
-	log.Inf("HTTP Server object:")        // Print the HTTP server object.
-	log.Inf("Port: %d", s.port)           // Print the port number.
-	log.Inf("Time: %s", s.now.Format(time.RFC3339Nano)) // Print the time.
-	log.Inf("Liveness wait time: %s", s.lpwt) // Print the liveness wait time.
-	log.Inf("Readiness wait time: %s", s.rpwt) // Print the readiness wait time.
-	log.Inf("Is ready: %t", s.isready)    // Print the readiness flag.
-	log.Inf("Mappings: %v", s.maps)       // Print the mappings.
-	log.Inf("Config path: %s", s.cfgp)    // Print the config path.
-	log.Inf("Version: %s", s.vrs)         // Print the version.
-	log.Inf("Number of connections: %d", s.ncnx) // Print the number of connections.
-	log.Inf("Number of cache hits: %d",s.chit) // Print the number of cache hits.
-	log.Inf("Number of cache misses: %d",s.cmiss) // Print the number of cache misses.
-	log.Inf("Number of reloads: %d",s.nload) // Print the number of reloads.
-	log.Inf("Mappings:")                  // Print the mappings.
+	s.log.Inf("HTTP Server object:")        // Print the HTTP server object.
+	s.log.Inf("Port: %d", s.port)           // Print the port number.
+	s.log.Inf("Time: %s", s.now.Format(time.RFC3339Nano)) // Print the time.
+	s.log.Inf("Liveness wait time: %s", s.lpwt) // Print the liveness wait time.
+	s.log.Inf("Readiness wait time: %s", s.rpwt) // Print the readiness wait time.
+	s.log.Inf("Is ready: %t", s.isready)    // Print the readiness flag.
+	s.log.Inf("Mappings: %v", s.maps)       // Print the mappings.
+	s.log.Inf("Config path: %s", s.cfgp)    // Print the config path.
+	s.log.Inf("Version: %s", s.vrs)         // Print the version.
+	s.log.Inf("Number of connections: %d", s.ncnx) // Print the number of connections.
+	s.log.Inf("Number of cache hits: %d",s.chit) // Print the number of cache hits.
+	s.log.Inf("Number of cache misses: %d",s.cmiss) // Print the number of cache misses.
+	s.log.Inf("Number of reloads: %d",s.nload) // Print the number of reloads.
+	s.log.Inf("Mappings:")                  // Print the mappings.
 	for _,m:=range s.maps{                // For the number of key/values in mapping.
 	  if m.Alias==""{                     // Is the IP Address alias empty?
-		  log.Err("Empty alias in mapping %s",m.Alias) // Yes, log it.
+		  s.log.Err("Empty alias in mapping %s",m.Alias) // Yes, log it.
 		} else if m.Pods==""{               // Is the pod name empty?
-		  log.Err("Empty pod name in mapping %s",m.Pods) // Yes, log it.
+		  s.log.Err("Empty pod name in mapping %s",m.Pods) // Yes, log it.
 		} else {                            // Else we found something so print it.
-		  log.Inf("  Alias: %s -> Pod: %s",m.Alias,m.Pods)// Print the mapping.
+		  s.log.Inf("  Alias: %s -> Pod: %s",m.Alias,m.Pods)// Print the mapping.
 		}                                   // Done checking the mapping.
 	}                                     // Done printing the mappings.
-	log.Inf("HTTP Server object printed.")// Print the HTTP server object.
+	s.log.Inf("HTTP Server object printed.")// Print the HTTP server object.
 }                                       // ---------- PrintObject ----------- //
