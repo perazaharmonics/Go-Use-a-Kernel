@@ -139,63 +139,63 @@ func pipeToChild(buf []byte, log logger.Log) (int){
       log.Inf("Wrote %d bytes to stdout",n) // Log the number of bytes written
       if p.Close()!=nil{                // Did we error closing the pipe?
 	    log.Err("Error closing pipe: %v",err) // Yes, return nil object and error.
-		status=PipeError                // Set status to PipeError
-		return status                   // Yes, signal error.
-	  }                                 // Done checking for error closing pipe.
+		status=PipeError                   // Set status to PipeError
+		return status                      // Yes, signal error.
+	  }                                  // Done checking for error closing pipe.
 	  if status==Success||status==GotEOF{// No errors?
-		break                           // Break out of the loop
-	  }                                 // Done checking for errors.
-	}                                   // Done reading from the pipe.
-    default:                            // We are in the parent process
-	    log.Inf("Parent process created.")  // Parent process created
+		break                              // Break out of the loop
+	  }                                  // Done checking for errors.
+	}                                    // Done reading from the pipe.
+    default:                           // We are in the parent process
+	    log.Inf("Parent process created.")// Parent process created
 	// -------------------------------- //
 	// We are the parent so we will be writing to the pipe. (8)
 	// -------------------------------- //
-      we,err:=p.GetWriteEnd()             // Get the write end of the pipe
-	     if err!=nil{                        // Did we error getting the write end of the pipe?
+      we,err:=p.GetWriteEnd()         // Get the write end of the pipe
+	     if err!=nil{                   // Did we error getting the write end of the pipe?
 	        log.Err("Error getting write end of pipe: %v",err) // Yes, log it.
-	       return status                     // and, signal error.
-	     }                                   // Done checking for error getting read end of pipe.
-       p.CloseRead()                       // Close the read end of the pipe
-	  // -------------------------------- //
+	       return status                // and, signal error.
+	     }                              // Done checking for error getting read end of pipe.
+       p.CloseRead()                  // Close the read end of the pipe
+	  // ------------------------------ //
 	  // Now we write data to the pipe (9).
-	  // -------------------------------- //
+	  // ------------------------------ //
 	    n,err:=we.Write([]byte(os.Args[1])) // Write to the pipe
-	    if err!=nil{                        // Did we error writing to the pipe?
+	    if err!=nil{                    // Did we error writing to the pipe?
 	      log.Err("Error writing to pipe: %v",err) // Yes, return log it.
-	      status=PipeWriteError             // Set status to PipeWriteEndClosed
-	      return status                     // and, signal error.
-	    }                                   // Done checking for error writing to pipe.
-	    if n!=len(os.Args[1]){              // Did we write all the bytes?
+	      status=PipeWriteError         // Set status to PipeWriteEndClosed
+	      return status                 // and, signal error.
+	    }                               // Done checking for error writing to pipe.
+	    if n!=len(os.Args[1]){          // Did we write all the bytes?
 	      log.Err("We read %d bytes but wrote %d bytes",len(os.Args[1]),n) // Yes, return log it..
-	      status=PipeWriteError             // Set status to PipeWriteError
-	      return status                     // Yes, signal error.
-	    }                                   // Done checking for bytes written.
+	      status=PipeWriteError         // Set status to PipeWriteError
+	      return status                 // Yes, signal error.
+	    }                               // Done checking for bytes written.
 	// -------------------------------- //
 	// Now we close the write end of the pipe (10) so child sees EOF.
 	// -------------------------------- //
-	    if p.CloseWrite()!=nil{             // Did we error closing the write end of the pipe?
+	    if p.CloseWrite()!=nil{         // Did we error closing the write end of the pipe?
 	      log.Err("Error closing write end of pipe: %v",err) // Yes, log it.
-	      status=PipeWriteEndClosed         // Set status to PipeWriteEndClosed
-	      return status                     // Yes, signal error.
-      }                                   // Done closing write fd
+	      status=PipeWriteEndClosed     // Set status to PipeWriteEndClosed
+	      return status                 // Yes, signal error.
+      }                               // Done closing write fd
   // -------------------------------- //
 	// Now we wait for the child to terminate (11).
 	// -------------------------------- //
 	  _,err=syscall.Wait4(int(pid),nil,0,nil) // Wait for the child to terminate
-	  if err!=nil{                       // Did we error waiting for the child to terminate?
+	  if err!=nil{                      // Did we error waiting for the child to terminate?
 	    log.Err("Error waiting for child: %v",err) // Yes, return nil object and error.
-	    status=UnknownError              // Set status to UnknownError
-	    return status                    // Yes, signal error.
-	  }								                 // Done checking for error waiting for child to terminate.
-    log.Inf("Child terminated.")     // Child terminated successfully
-	  if status==Success{              // No errors?
+	    status=UnknownError             // Set status to UnknownError
+	    return status                   // Yes, signal error.
+	  }								                  // Done checking for error waiting for child to terminate.
+    log.Inf("Child terminated.")      // Child terminated successfully
+	  if status==Success{               // No errors?
 	    log.Inf("PipeToChild completed successfully.") // it's a success.
-	    break                          // Break out of the loop
-	  }                                // Done checking for child process.
-  }                                  // Done handling myself and child.
-  return status                      // Return the status code                    
-}                                    // ------------ pipeToChild ----------- //
+	    break                           // Break out of the loop
+	  }                                 // Done checking for child process.
+  }                                   // Done handling myself and child.
+  return status                       // Return the status code                    
+}                                     // ------------ pipeToChild ----------- //
 
 func main() {
   if len(os.Args) < 2 || os.Args[1] == "--help" { // User asking for help?
@@ -212,24 +212,31 @@ func main() {
  // So we can clean the semaphore.
  // ----------------------------------- //
   ctx,cancel:=context.WithCancel(context.Background()) // Create a context
-  defer cancel()						// Defer canceling the context
-  utils.SignalHandler(cancel)		    // Set up signal handler
+  defer cancel()						            // Defer canceling the context
+  utils.SignalHandler(cancel)		        // Set up signal handler
   utils.RegisterShutdownCB(func(){      // Register shutdown callback
     log.Inf("Shutdown callback called.")
     log.Shutdown()                      // Shutdown the logger
   })                                    // Done registering shutdown callback
   buf:=make([]byte,BUF_SIZE)            // Create a buffer for reading from the pipe
-  utils.SetLogger(log)				    // Set the logger object
+  utils.SetLogger(log)				          // Set the logger object
   status:=pipeToChild(buf,log)          // Call the pipeToChild function
   if status!=Success{                   // Did we error in the pipeToChild function?
-    log.Err("Error in pipeToChild: %v",StatusToString(status)) // Yes, return nil object and error.
+    log.Err("Error in pipeToChild: %v",StatusToString(status)) // Yes, log it.
     // fall through so we hit the shutdown callback.
-	cancel()                            // Yes, exit program.
+	cancel()                              // Yes, exit program.
   } else{                               // Else no errors.
     log.Inf("PipeToChild completed successfully.") // PipeToChild completed successfully
-	cancel()                            // Cancel the context.
+	cancel()                              // Cancel the context.
   }                                     // Done checking for errors.
+  // ---------------------------------- //
+  // This is the good ending.
+  // ---------------------------------- //
   log.Inf("Exiting program.")           // Exiting program
+  // ---------------------------------- //
+  // Fire off context cancellation waiting and pray your SignalHandler can
+  // manage what we get.
+  // ---------------------------------- //
   <-ctx.Done()                          // Wait for the context to be canceled.
-  utils.InvokeShutdownCBs()             // Run the shutdown callbacks.
+  utils.InvokeShutdownCBs()             // Nice.
 }                                       // ------------ main ----------------- //
