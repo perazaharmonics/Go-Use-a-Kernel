@@ -224,7 +224,7 @@ func main() {
   status:=pipeToChild(buf,log)          // Call the pipeToChild function
   if status!=Success{                   // Did we error in the pipeToChild function?
     log.Err("Error in pipeToChild: %v",StatusToString(status)) // Yes, log it.
-    // fall through so we hit the shutdown callback.
+  // fall through so we hit the shutdown callback.
 	cancel()                              // Yes, exit program.
   } else{                               // Else no errors.
     log.Inf("PipeToChild completed successfully.") // PipeToChild completed successfully
