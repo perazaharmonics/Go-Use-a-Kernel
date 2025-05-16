@@ -127,8 +127,8 @@ func pipeToChild(buf []byte, log logger.Log) (int){
 	  n,err:=os.Stdout.Write(buf[:numRead]) // Write to stdout
 	  if err!=nil{                      // Did we error writing to stdout?
 	    log.Err("Error writing to stdout: %v",err) // Yes, return nil object and error.
-		status=PipeWriteEndClosed         // Set status to PipeWriteEndClosed
-		return status                     // Yes, signal error.
+		  status=PipeWriteEndClosed       // Set status to PipeWriteEndClosed
+		  return status                   // Yes, signal error.
 	  }                                 // Done checking for error writing to stdout.
 	  if n!=numRead{                    // Did we write all the bytes?
 	    log.Err("We read %d bytes but wrote %d bytes",numRead,n) // Yes, return nil object and error.
@@ -143,9 +143,9 @@ func pipeToChild(buf []byte, log logger.Log) (int){
 		return status                      // Yes, signal error.
 	  }                                  // Done checking for error closing pipe.
 	  if status==Success||status==GotEOF{// No errors?
-		break                              // Break out of the loop
+		  break                            // Break out of the loop
 	  }                                  // Done checking for errors.
-	}                                    // Done reading from the pipe.
+  }                                    // Done reading from the pipe.
     default:                           // We are in the parent process
 	    log.Inf("Parent process created.")// Parent process created
 	// -------------------------------- //
