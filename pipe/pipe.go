@@ -90,8 +90,8 @@ func (p *Pipes) Write(b []byte) (int, error) {
   return n,err                          // No error, return the number of bytes written and nil.
 }                                       // ------------ Write ---------------- //
 
-// Close closes the read and write files associated with the pipe by being given
-// the read or write file descriptor.
+// Close closes the read and write files associated with the pipe object in-itself
+// by its inate members read (p.rf) and write (p.wf) file descriptor.
 func (p *Pipes) Close() error {
 	if err:=p.rf.Close();err!=nil{      // Did we error closing the read end of the pipe?
 	  _=p.wf.Close()                    // Yes, close the write end of the pipe.
