@@ -127,12 +127,13 @@ func pipeToChild(buf []byte, log logger.Log) (int){
 	  n,err:=os.Stdout.Write(buf[:numRead]) // Write to stdout
 	  if err!=nil{                      // Did we error writing to stdout?
 	    log.Err("Error writing to stdout: %v",err) // Yes, return nil object and error.
-		status=PipeWriteEndClosed       // Set status to PipeWriteEndClosed
-		return status                   // Yes, signal error.
+		status=PipeWriteEndClosed         // Set status to PipeWriteEndClosed
+		return status                     // Yes, signal error.
 	  }                                 // Done checking for error writing to stdout.
 	  if n!=numRead{                    // Did we write all the bytes?
 	    log.Err("We read %d bytes but wrote %d bytes",numRead,n) // Yes, return nil object and error.
-		status=PipeWriteError           // Set status to PipeWriteError
+		status=PipeWriteError             // Set status to PipeWriteError
+    return status                     // Reurn status.
 	  }                                 // Done checking for bytes written.
 	  _,_=os.Stdout.Write([]byte("\n")) // Write a newline to stdout (7)
       log.Inf("Wrote %d bytes to stdout",n) // Log the number of bytes written
@@ -146,56 +147,55 @@ func pipeToChild(buf []byte, log logger.Log) (int){
 	  }                                 // Done checking for errors.
 	}                                   // Done reading from the pipe.
     default:                            // We are in the parent process
-	  log.Inf("Parent process created.")  // Parent process created
+	    log.Inf("Parent process created.")  // Parent process created
 	// -------------------------------- //
 	// We are the parent so we will be writing to the pipe. (8)
 	// -------------------------------- //
-    we,err:=p.GetWriteEnd()             // Get the write end of the pipe
-	if err!=nil{                        // Did we error getting the write end of the pipe?
-	  log.Err("Error getting write end of pipe: %v",err) // Yes, return nil object and error.
-	  status=PipeWriteEndClosed         // Set status to PipeWriteEndClosed
-	  return status                     // Yes, signal error.
-	}                                   // Done checking for error getting read end of pipe.
-	p.CloseRead()                       // Close the read end of the pipe
-	// -------------------------------- //
-	// Now we write data to the pipe (9).
-	// -------------------------------- //
-	n,err:=we.Write([]byte(os.Args[1])) // Write to the pipe
-	if err!=nil{                        // Did we error writing to the pipe?
-	  log.Err("Error writing to pipe: %v",err) // Yes, return nil object and error.
-	  status=PipeWriteError             // Set status to PipeWriteEndClosed
-	  return status                     // Yes, signal error.
-	}                                   // Done checking for error writing to pipe.
-	if n!=len(os.Args[1]){              // Did we write all the bytes?
-	  log.Err("We read %d bytes but wrote %d bytes",len(os.Args[1]),n) // Yes, return nil object and error.
-	  status=PipeWriteError             // Set status to PipeWriteError
-	  return status                     // Yes, signal error.
-	}                                   // Done checking for bytes written.
+      we,err:=p.GetWriteEnd()             // Get the write end of the pipe
+	     if err!=nil{                        // Did we error getting the write end of the pipe?
+	        log.Err("Error getting write end of pipe: %v",err) // Yes, log it.
+	       return status                     // and, signal error.
+	     }                                   // Done checking for error getting read end of pipe.
+       p.CloseRead()                       // Close the read end of the pipe
+	  // -------------------------------- //
+	  // Now we write data to the pipe (9).
+	  // -------------------------------- //
+	    n,err:=we.Write([]byte(os.Args[1])) // Write to the pipe
+	    if err!=nil{                        // Did we error writing to the pipe?
+	      log.Err("Error writing to pipe: %v",err) // Yes, return log it.
+	      status=PipeWriteError             // Set status to PipeWriteEndClosed
+	      return status                     // and, signal error.
+	    }                                   // Done checking for error writing to pipe.
+	    if n!=len(os.Args[1]){              // Did we write all the bytes?
+	      log.Err("We read %d bytes but wrote %d bytes",len(os.Args[1]),n) // Yes, return log it..
+	      status=PipeWriteError             // Set status to PipeWriteError
+	      return status                     // Yes, signal error.
+	    }                                   // Done checking for bytes written.
 	// -------------------------------- //
 	// Now we close the write end of the pipe (10) so child sees EOF.
 	// -------------------------------- //
-	if p.CloseWrite()!=nil{             // Did we error closing the write end of the pipe?
-	  log.Err("Error closing write end of pipe: %v",err) // Yes, return nil object and error.
-	  status=PipeWriteEndClosed         // Set status to PipeWriteEndClosed
-	  return status                     // Yes, signal error.
-	}                                   // Done checking for error closing write end of pipe.
-    // -------------------------------- //
+	    if p.CloseWrite()!=nil{             // Did we error closing the write end of the pipe?
+	      log.Err("Error closing write end of pipe: %v",err) // Yes, log it.
+	      status=PipeWriteEndClosed         // Set status to PipeWriteEndClosed
+	      return status                     // Yes, signal error.
+      }                                   // Done closing write fd
+  // -------------------------------- //
 	// Now we wait for the child to terminate (11).
 	// -------------------------------- //
-	_,err=syscall.Wait4(int(pid),nil,0,nil) // Wait for the child to terminate
-	if err!=nil{                       // Did we error waiting for the child to terminate?
-	  log.Err("Error waiting for child: %v",err) // Yes, return nil object and error.
-	  status=UnknownError              // Set status to UnknownError
-	  return status                    // Yes, signal error.
-	}								   // Done checking for error waiting for child to terminate.
-    log.Inf("Child terminated.")       // Child terminated successfully
-	if status==Success{                // No errors?
-	  log.Inf("PipeToChild completed successfully.") // PipeToChild completed successfully
-	  break                            // Break out of the loop
-	}                                  // Done checking for child process.
-  }                                    // Done checking for child process.
-  return status                        // Return the status code                    
-}                                      // ------------ pipeToChild ----------- //
+	  _,err=syscall.Wait4(int(pid),nil,0,nil) // Wait for the child to terminate
+	  if err!=nil{                       // Did we error waiting for the child to terminate?
+	    log.Err("Error waiting for child: %v",err) // Yes, return nil object and error.
+	    status=UnknownError              // Set status to UnknownError
+	    return status                    // Yes, signal error.
+	  }								                 // Done checking for error waiting for child to terminate.
+    log.Inf("Child terminated.")     // Child terminated successfully
+	  if status==Success{              // No errors?
+	    log.Inf("PipeToChild completed successfully.") // it's a success.
+	    break                          // Break out of the loop
+	  }                                // Done checking for child process.
+  }                                  // Done handling myself and child.
+  return status                      // Return the status code                    
+}                                    // ------------ pipeToChild ----------- //
 
 func main() {
   if len(os.Args) < 2 || os.Args[1] == "--help" { // User asking for help?
