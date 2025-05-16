@@ -154,7 +154,8 @@ func pipeToChild(buf []byte, log logger.Log) (int){
       we,err:=p.GetWriteEnd()         // Get the write end of the pipe
 	     if err!=nil{                   // Did we error getting the write end of the pipe?
 	        log.Err("Error getting write end of pipe: %v",err) // Yes, log it.
-	       return status                // and, signal error.
+	        status=PipeReadError        // Report status
+          return status               // and, signal error.
 	     }                              // Done checking for error getting read end of pipe.
        p.CloseRead()                  // Close the read end of the pipe
 	  // ------------------------------ //
@@ -163,7 +164,7 @@ func pipeToChild(buf []byte, log logger.Log) (int){
 	    n,err:=we.Write([]byte(os.Args[1])) // Write to the pipe
 	    if err!=nil{                    // Did we error writing to the pipe?
 	      log.Err("Error writing to pipe: %v",err) // Yes, return log it.
-	      status=PipeWriteError         // Set status to PipeWriteEndClosed
+	      status=PipeWriteEndClosed     // Set status to PipeWriteEndClosed
 	      return status                 // and, signal error.
 	    }                               // Done checking for error writing to pipe.
 	    if n!=len(os.Args[1]){          // Did we write all the bytes?
