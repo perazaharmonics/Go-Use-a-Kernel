@@ -180,7 +180,7 @@ func pipeToChild(buf []byte, log logger.Log) (int){
 	      status=PipeWriteEndClosed     // Set status to PipeWriteEndClosed
 	      return status                 // Yes, signal error.
       }                               // Done closing write fd
-   // -------------------------------- //
+    // -------------------------------- //
 	// Now we wait for the child to terminate (11).
 	// -------------------------------- //
 	  _,err=syscall.Wait4(int(pid),nil,0,nil) // Wait for the child to terminate
