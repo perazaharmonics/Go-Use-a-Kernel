@@ -90,8 +90,8 @@ func (p *Pipes) Write(b []byte) (int, error) {
   return n,err                          // No error, return the number of bytes written and nil.
 }                                       // ------------ Write ---------------- //
 
-// Close closes the read and write files associated with the pipe object in-itself
-// by its inate members read (p.rf) and write (p.wf) file descriptor.
+// Close closes the read and write files associated with the pipe by being given
+// the read or write file descriptor.
 func (p *Pipes) Close() error {
 	if err:=p.rf.Close();err!=nil{      // Did we error closing the read end of the pipe?
 	  _=p.wf.Close()                    // Yes, close the write end of the pipe.
@@ -112,13 +112,60 @@ func (p *Pipes) CloseRead() error {
 // CloseWrite closes the write end of the pipe.
 func (p *Pipes) CloseWrite() error {
   if p.wf==nil{                         // Is the write end of the pipe nil?
-	return nil                          // Nothing to do, return nil.
+	return nil                            // Nothing to do, return nil.
   }                                     // Done checking if the write end of the pipe is nil.
   err:=p.wf.Close()                     // Close the write end of the pipe.
   p.wf=nil                              // Set the write end of the pipe to nil.
   return err                            // Return the error closing the write end of the pipe.
 }                                       // ------------ CloseWrite ---------- //
+// DupFile duplicates f’s descriptor (using SYS_DUP) and returns a new *os.File.
+func DupFile(f *os.File) (*os.File,error) {
+  // ---------------------------------- //
+  // Create a new file with the lowest available file descriptor.
+  // ---------------------------------- //
+  if f==nil{                            // Did they give us a file
+    return nil,os.ErrInvalid            // Yes, return nil and error.
+  }                                     // Done checking if the file is nil.
+  oldfd:=int(f.Fd())                    // Get the file descriptor of the file.
+  newfd,err:=Dup(oldfd)                 // Duplicate the file descriptor.
+  if err!=nil{                          // Did we error duplicating the file descriptor?
+    return nil,err                      // Yes, return nil and error.
+  }                                     // Done with error duplicating the file descriptor.
+  return os.NewFile(uintptr(newfd),f.Name()),nil// Return new file and nil error.
+}                                       // ------------ DupFile -------------- //
 
+// Dup2File duplicates f’s descriptor (using SYS_DUP2) and returns a new *os.File.
+func Dup2File(f *os.File, newfd int) (*os.File,error) {
+  // ---------------------------------- //
+  // Create a new file with the lowest available file descriptor.
+  // ---------------------------------- //
+  if f==nil{                            // Did they give us a file
+    return nil,os.ErrInvalid            // Yes, return nil and error.
+  }                                     // Done checking if the file is nil.
+  oldfd:=int(f.Fd())                    // Get the file descriptor of the file.
+  newfd,err:=Dup2(oldfd,newfd)          // Duplicate the file descriptor.
+  if err!=nil{                          // Did we error duplicating the file descriptor?
+    return nil,err                      // Yes, return nil and error.
+  }                                     // Done with error duplicating the file descriptor.
+  return os.NewFile(uintptr(newfd),f.Name()),nil// Return new file and nil error.
+}                                       // ------------ Dup2File ------------- //
+
+// Dup3File makes newfd a copy of f.Fd() with flags (e.g. O_CLOEXEC).
+// closing newfd first. Flags get passed to Dup3() wrapper
+func Dup3File(f *os.File, newfd int, flags int) (*os.File,error) {
+  // ---------------------------------- //
+  // Create a new file with the lowest available file descriptor.
+  // ---------------------------------- //
+  if f==nil{                            // Did they give us a file
+    return nil,os.ErrInvalid            // Yes, return nil and error.
+  }                                     // Done checking if the file is nil.
+  oldfd:=int(f.Fd())                    // Get the file descriptor of the file.
+  newfd,err:=Dup3(oldfd,newfd,flags)    // Duplicate the file descriptor.
+  if err!=nil{                          // Did we error duplicating the file descriptor?
+    return nil,err                      // Yes, return nil and error.
+  }                                     // Done with error duplicating the file descriptor.
+  return os.NewFile(uintptr(newfd),f.Name()),nil// Return new file and nil error.
+}
 
 // CreateFIFO makes a named pipe (FIFO) at path with the given permissions.
 func CreateFIFO(path string, perm os.FileMode) error {
@@ -136,7 +183,7 @@ func OpenFIFO(path string, perm os.FileMode) (*os.File, error) {
 func CloseFIFO(path string) error {
   err:=os.Remove(path)                  // Remove the FIFO
   if err!=nil{                          // Did we error removing the FIFO?
-	return err                          // Yes, return the error.
-  }									    // Done with error removing FIFO.
+	return err                            // Yes, return the error.
+  }									                    // Done with error removing FIFO.
   return nil                            // No error, return nil.
 }                                       // ------------ CloseFIFO ----------- //
