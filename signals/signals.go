@@ -92,7 +92,7 @@ func SignalHandler(cancel context.CancelFunc) { // ------- SignalHandler -------
 			case syscall.SIGQUIT: // Is it a SIGQUIT signal?
 				log.War("Received SIGQUIT: Forcing shutdown.")
 			 cancel()          // Cancel the context.
-    runShutdownCBs() // Run the shutdown callbacks.
+          runShutdownCBs() // Run the shutdown callbacks.
 				os.Exit(0)
 			case syscall.SIGPIPE: // Is it a SIGPIPE signal?
 				log.War("Received SIGPIPE: Ignoring.")
