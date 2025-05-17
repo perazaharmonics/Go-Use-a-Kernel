@@ -167,6 +167,60 @@ func Dup3File(f *os.File, newfd int, flags int) (*os.File,error) {
   return os.NewFile(uintptr(newfd),f.Name()),nil// Return new file and nil error.
 }
 
+// POpen starts 'sh -c cmd' and returns an *os.File hooked to either the child's
+// stdout (in r mode) os stdin (in w mode), plus the Go *os.Process you can Wait()
+// on
+func POpen(cmd,mode string) (f *os.File,proc *os.Process,err error) {
+  if cmd==""||mode==""{                 // Did they give us a command or mode?
+    return nil,nil,os.ErrInvalid        // No, return nil and error.
+  }                                     // Done checking if the command and mode are empty.
+  var modes int                         // The modes we can handle.
+  switch mode{                          // Act according to the mode.
+  case "r":                             // We are in read mode.
+    modes=POPENREAD                     // Set the modes to read.
+  case "w":                             // We are in write mode.
+    modes=POPENWRITE                    // Set the modes to write.
+  default:                              // We are in an unknown mode.
+    return nil,nil,os.ErrInvalid        // Yes, return nil and error.
+  }                                     // Done checking the mode.
+  // ---------------------------------- //
+  // Create a pipe
+  // ---------------------------------- //
+  fd,pid,err:=Popen(cmd,modes)          // Call the low-level popen syscall
+  if err!=nil{                          // Did we error getting the pipe's fd?
+    return nil,nil,err                  // Yes, return nil object and error.
+  }                                     // Done with error creating pipe.
+  file:=os.NewFile(uintptr(fd),"popen-"+mode)
+  // ---------------------------------- //
+  // Wrap the raw pid in the *os.Process so the user can call proc.Wait()
+  // ---------------------------------- //
+  proc,err=os.FindProcess(pid)          // Find the process by pid.
+  if err!=nil{                          // Did we error finding the process?
+    file.Close()                        // Yes, close the file.
+    return nil,nil,err                  // return nil object and error.
+  }                                     // Done with error finding the process.
+  return file,proc,nil                  // Return the file and process.
+}                                       // ------------ POpen --------------- //
+// PClose closes the *os.File and then waits for the process to exit, returning
+// its exit code or error.
+func PClose(f *os.File, proc *os.Process) (int, error) {
+  // ---------------------------------- //
+  // Close the fd so the child sees EOF (if writing to it) or fd is cleaned up.
+  // ---------------------------------- //
+  if f==nil{                            // Did they give us a file
+    return 0,os.ErrInvalid              // Yes, return 0 and error.
+  }                                     // Done checking if the file is nil.
+  f.Close()                             // Close the file.
+  // ---------------------------------- //
+  // Wait for the process to exit and return its exit code.
+  // ---------------------------------- //
+  code,err:=Pclose(proc.Pid)            // Wait for the process to exit.
+  if err!=nil{                          // Did we error waiting for the process?
+    return -1,err                       // Yes, return -1 and error.
+  }                                     // Done with error waiting for the process.
+  return code,nil                       // No error, return the exit code and nil.
+}                                       // ------------ PClose -------------- //
+
 // CreateFIFO makes a named pipe (FIFO) at path with the given permissions.
 func CreateFIFO(path string, perm os.FileMode) error {
 	return Mkfifo(path, uint32(perm.Perm()))
@@ -175,7 +229,7 @@ func CreateFIFO(path string, perm os.FileMode) error {
 func OpenFIFO(path string, perm os.FileMode) (*os.File, error) {
   f,err:=os.OpenFile(path,os.O_RDWR|os.O_CREATE|os.O_EXCL,perm) // Open the FIFO
   if err!=nil{                          // Did we error opening the FIFO?
-	return nil,err                      // Yes, return nil object and error.
+	return nil,err                        // Yes, return nil object and error.
   }                                     // Done with error opening FIFO.
   return f,nil                          // Return the FIFO object.
 }                                       // ------------ OpenFIFO ------------ //
