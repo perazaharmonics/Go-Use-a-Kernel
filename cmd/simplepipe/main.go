@@ -212,7 +212,7 @@ func main() {
  // No matter how we exit the program we need to close the logger.
  // So we can clean the semaphore.
  // ----------------------------------- //
-  ctx,cancel:=context.WithCancel(context.Background()) // Create a context						            // Defer canceling the context
+  ctx,cancel:=context.WithCancel(context.Background()) // Create a context						            
   utils.SignalHandler(cancel)		        // Set up signal handler
   utils.RegisterShutdownCB(func(){      // Register shutdown callback
     log.Inf("Shutdown callback called.")
