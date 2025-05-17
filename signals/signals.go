@@ -125,16 +125,16 @@ func runShutdownCBs() {                  // -------- runShutdownCBs --------- //
 func InvokeShutdownCBs() {              // ----- InvokeShutdownCBs -------- //
   runShutdownCBs()                      // Run the shutdown callbacks.
 }                                       // ------- InvokeShutdownCBs -------- //
-// ------------------------------------- //
+// ------------------------------------ //
 // safeCall is a helper function that executes a shutdown callback function
 // with panic recovery.
-// ------------------------------------- //
-func safeCall(cb func()) { // ---------- safeCall ------------- //
-	defer func() { // Defer the recovery function to handle panics.
-		if r := recover(); r != nil { // Did we panic?
-			log.Err("Recovered from panic in shutdown callback: %v", r) // Yes, log it.
-		} // Done checking for panic.
-	}() // Done deferring the recovery function.
-	log.Inf("Running shutdown callback: %p", cb) // Log the callback.
-	cb()                                         // Call the callback function.
-} // ---------- safeCall ------------- //
+// ----------------------------------- //
+func safeCall(cb func()) {             // ---------- safeCall ------------- //
+  defer func() {                       // Defer the recovery function to handle panics.
+    if r := recover(); r != nil {      // Did we panic?
+     log.Err("Recovered from panic in shutdown callback: %v", r) // Yes, log it.
+    }                                  // Done checking for panic.
+  }()                                  // Done deferring the recovery function.
+  log.Inf("Running shutdown callback: %p", cb) // Log the callback.
+  cb()                                 // Call the callback function.
+}                                      // ---------- safeCall ------------- //
