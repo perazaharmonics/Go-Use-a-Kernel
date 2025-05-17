@@ -131,9 +131,9 @@ func pipeToChild(buf []byte, log logger.Log) (int){
 		  return status                   // Yes, signal error.
 	  }                                 // Done checking for error writing to stdout.
 	  if n!=numRead{                    // Did we write all the bytes?
-	    log.Err("We read %d bytes but wrote %d bytes",numRead,n) // Yes, return nil object and error.
-		status=PipeWriteError             // Set status to PipeWriteError
-    return status                     // Reurn status.
+	    log.Err("We read %d bytes but wrote %d bytes",numRead,n) // Yes, return log it.
+		status=PipeWriteError             // ..and set status to PipeWriteError
+    return status                     // Return status.
 	  }                                 // Done checking for bytes written.
 	  _,_=os.Stdout.Write([]byte("\n")) // Write a newline to stdout (7)
       log.Inf("Wrote %d bytes to stdout",n) // Log the number of bytes written
