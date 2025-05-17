@@ -79,28 +79,28 @@ func SignalHandler(cancel context.CancelFunc) { // ------- SignalHandler -------
 	go func() { // On a separate thread.
 		for { // Until we receive a signal..
 			sig := <-sigCh // Wait for a signal on the channel.
-			switch sig {   // Yes, what signal is it?
-			case syscall.SIGHUP: // It was a SIGHUP signal.
-				log.Inf("Closing the log file.") // Log rotation.
-				log.ExitLog("Because we received a SIGHUP signal.")
-				log.Inf("Re-opened log file.") // Done handling SIGHUP.
-			case syscall.SIGINT, syscall.SIGTERM: // It was a SIGINT/SIGTERM signal?
-				log.Inf("Received %v: Starting graceful shutdown.", sig)
-				cancel()         // Cancel the context.
-				runShutdownCBs() // Run the shutdown callbacks.
-				os.Exit(0)       // Most often good.
-			case syscall.SIGQUIT: // Is it a SIGQUIT signal?
-				log.War("Received SIGQUIT: Forcing shutdown.")
-			 cancel()          // Cancel the context.
-             runShutdownCBs() // Run the shutdown callbacks.
-				os.Exit(0)       // Not so bad
-			case syscall.SIGPIPE: // Is it a SIGPIPE signal?
-				log.War("Received SIGPIPE: Ignoring.")
-			default: // It was something else.
-				log.Err("Received unknown signal: %v", sig)
-				cancel() // Cancel the context.
-         runShutdownCBs() // Run the shutdown CBs
-    os.Exit(1) // Bad stuff maybe
+   switch sig {   // Yes, what signal is it?
+    case syscall.SIGHUP: // It was a SIGHUP signal.
+      log.Inf("Closing the log file.") // Log rotation.
+      log.ExitLog("Because we received a SIGHUP signal.")
+      log.Inf("Re-opened log file.") // Done handling SIGHUP.
+    case syscall.SIGINT, syscall.SIGTERM: // It was a SIGINT/SIGTERM signal?
+      log.Inf("Received %v: Starting graceful shutdown.", sig)
+      cancel()         // Cancel the context.
+      runShutdownCBs() // Run the shutdown callbacks.
+      os.Exit(0)       // Most often good.
+    case syscall.SIGQUIT: // Is it a SIGQUIT signal?
+     log.War("Received SIGQUIT: Forcing shutdown.")
+     cancel()          // Cancel the context.
+     runShutdownCBs() // Run the shutdown callbacks.
+     os.Exit(0)       // Not so bad
+    case syscall.SIGPIPE: // Is it a SIGPIPE signal?
+      log.War("Received SIGPIPE: Ignoring.")
+    default: // It was something else.
+      log.Err("Received unknown signal: %v", sig)
+      cancel() // Cancel the context.
+      runShutdownCBs() // Run the shutdown CBs
+      os.Exit(1) // Bad stuff maybe
 			} // Done checking the signal.
 		} // Done waiting for signals.
 	}() // Done spawning the goroutine.
