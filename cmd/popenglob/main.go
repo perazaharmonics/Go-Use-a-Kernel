@@ -197,7 +197,7 @@ func pipeFromShell(pat []byte,log logger.Log) (int,error){
 	  }                                   // Done checking for errors.
 	  if len(line)>0{                   // Is line empty?
 	    n++	                            // No, we found something.  
-	    log.Inf("Result %d: %s",n+1,line) // Print result.
+	    log.Inf("Result %d: %s",n,line) // Print result.
 	    fmt.Println(line)               // Print result.
 	  }                                 // Done checking for empty line.
     }                                   // Done reading from pipe.
