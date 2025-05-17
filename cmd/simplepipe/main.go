@@ -45,30 +45,30 @@ const (
 )
 
 func StatusToString(status int) string { // Convert status code to string
-	switch status {                     // Check the status code
-	case ForkError:                     // Fork error
-		return "Fork error"             // Return the string
-	case PipeError:                     // Pipe error
-		return "Pipe error"             // Return the string
-	case Success:                       // No errors
-		return "Success"                // Return the string
-	case PipeCreated:                   // Pipe created successfully
-		return "Pipe created successfully" // Return the string
-	case PipeReadEndClosed:             // Read end of pipe closed
-		return "Read end of pipe closed" // Return the string
-	case PipeWriteEndClosed:            // Write end of pipe closed
-		return "Write end of pipe closed"// Return the string
-	case PipeReadError:                 // Read error
-		return "Read error"             // Return the string
-	case PipeWriteError:                // Write error
-		return "Write error"            // Return the string
-		case GotEOF:                    // EOF encountered
-		return "EOF encountered"        // Return the string
-	case UnknownError:                  // Unknown error
-		return "Unknown error"          // Return the string
-	default:                            // Unknown status code
-		return "Unknown status code"    // Return the string
-	}                                   // Done stringing the status code.
+	switch status {                       // Check the status code
+	case ForkError:                       // Fork error
+		return "Fork error"                 // Return the string
+	case PipeError:                       // Pipe error
+		return "Pipe error"                 // Return the string
+	case Success:                         // No errors
+		return "Success"                    // Return the string
+	case PipeCreated:                     // Pipe created successfully
+		return "Pipe created successfully"  // Return the string
+	case PipeReadEndClosed:               // Read end of pipe closed
+		return "Read end of pipe closed"    // Return the string
+	case PipeWriteEndClosed:              // Write end of pipe closed
+		return "Write end of pipe closed"   // Return the string
+	case PipeReadError:                   // Read error
+		return "Read error"                 // Return the string
+	case PipeWriteError:                  // Write error
+		return "Write error"                // Return the string
+  case GotEOF:                          // EOF encountered
+		return "EOF encountered"            // Return the string
+	case UnknownError:                    // Unknown error
+		return "Unknown error"              // Return the string
+	default:                              // Unknown status code
+		return "Unknown status code"        // Return the string
+	}                                     // Done stringing the status code.
 }                                       // ------------ StatusToString --------- //
 
 func pipeToChild(buf []byte, log logger.Log) (int){
@@ -76,11 +76,11 @@ func pipeToChild(buf []byte, log logger.Log) (int){
   // ---------------------------------- //
   // Attempt to create a new pipe (1).
   // ---------------------------------- // 
-  p,err:=pipe.NewPipe()		            // Call the pipe wrapper to create a pipe
+  p,err:=pipe.NewPipe()		              // Call the pipe wrapper to create a pipe
   if err!=nil{                          // Did we error initializing the pipe?
     log.Err("Error creating pipe: %v",err) // Yes, return nil object and error.
-	status=PipeError                    // Set status to PipeError
-	return status                       // Yes, signal error.
+	status=PipeError                      // Set status to PipeError
+	return status                         // Yes, signal error.
   }                                     // Done with error creating pipe.
   log.Inf("Pipe created successfully.") // Pipe created successfully
   defer p.Close()                       // Defer closing the pipe
@@ -88,76 +88,76 @@ func pipeToChild(buf []byte, log logger.Log) (int){
   // Fork to create a child process (2).
   // ---------------------------------- //
   pid,_,errno:=syscall.RawSyscall(syscall.SYS_FORK,0,0,0) // Fork the process
-  if errno!=0{                         // Did we error forking the process?
+  if errno!=0{                       // Did we error forking the process?
 	log.Err("Error forking process: %v",errno) // Yes, return nil object and error.
 	status=ForkError                   // Set status to ForkError
 	return status                      // Yes, signal error.                           
-  }                                    // Done with error forking process.
-  switch pid{                          // Act according to the pid.
-  case 0:                              // We are in the child process
-    log.Inf("Child process created.")  // Child process created
+  }                                  // Done with error forking process.
+  switch pid{                        // Act according to the pid.
+  case 0:                            // We are in the child process
+    log.Inf("Child process created.")// Child process created
 	// ------------------------------- //
 	// We are the child so we will be reading from the pipe.
 	// ------------------------------- //
 	re,err:=p.GetReadEnd()             // Get the write end of the pipe
 	if err!=nil{                       // Did we error getting the write end of the pipe?
 		log.Err("Error getting write end of pipe: %v",err)
-		status=PipeReadEndClosed       // Set status to PipeReadEndClosed
-		return status                  // Yes, signal error.
+		status=PipeReadEndClosed         // Set status to PipeReadEndClosed
+		return status                    // Yes, signal error.
 	}                                  // Done checking for error getting write end of pipe.
 	p.CloseWrite()                     // Close the write end of the pipe
 	// ------------------------------- //
 	// Now we read data from the pipe and echo on stdout.
 	// ------------------------------- //
 	for{                               // Loop until EOF
-		numRead,err:=re.Read(buf)      // Read from the pipe
-		if err!=nil{                   // Did we error reading from the pipe?
-		  if err==io.EOF||numRead==0{  // Yes, did we get EOF? (5)
+		numRead,err:=re.Read(buf)        // Read from the pipe
+		if err!=nil{                     // Did we error reading from the pipe?
+		  if err==io.EOF||numRead==0{    // Yes, did we get EOF? (5)
             log.Inf("EOF encountered.") // Yes, log EOF
-			status=GotEOF              // Set status to GotEOF
-			break                      // Break out of the loop
-		  }                            // Done checking for EOF.
+			status=GotEOF                  // Set status to GotEOF
+			break                          // Break out of the loop
+		  }                              // Done checking for EOF.
 		  log.Err("Error reading from pipe: %v",err) // Yes, return nil object and error.
-		  status=PipeReadError     	   // Set status to PipeReadError
-		  return status                 // Yes, signal error.
+		  status=PipeReadError     	     // Set status to PipeReadError
+		  return status                  // Yes, signal error.
 	  }                                // Done checking for error reading from pipe.
 	  // ----------------------------- //
 	  // Now we write the data to stdout (6).
 	  // ----------------------------- //
 	  n,err:=os.Stdout.Write(buf[:numRead]) // Write to stdout
-	  if err!=nil{                      // Did we error writing to stdout?
+	  if err!=nil{                     // Did we error writing to stdout?
 	    log.Err("Error writing to stdout: %v",err) // Yes, return nil object and error.
-		  status=PipeWriteEndClosed       // Set status to PipeWriteEndClosed
-		  return status                   // Yes, signal error.
-	  }                                 // Done checking for error writing to stdout.
-	  if n!=numRead{                    // Did we write all the bytes?
+		  status=PipeWriteEndClosed      // Set status to PipeWriteEndClosed
+		  return status                  // Yes, signal error.
+	  }                                // Done checking for error writing to stdout.
+	  if n!=numRead{                   // Did we write all the bytes?
 	    log.Err("We read %d bytes but wrote %d bytes",numRead,n) // Yes, return log it.
-		status=PipeWriteError             // ..and set status to PipeWriteError
-    return status                     // Return status.
-	  }                                 // Done checking for bytes written.
+		status=PipeWriteError            // ..and set status to PipeWriteError
+    return status                    // Return status.
+	  }                                // Done checking for bytes written.
 	  _,_=os.Stdout.Write([]byte("\n")) // Write a newline to stdout (7)
       log.Inf("Wrote %d bytes to stdout",n) // Log the number of bytes written
-      if p.Close()!=nil{                // Did we error closing the pipe?
+      if p.Close()!=nil{             // Did we error closing the pipe?
 	    log.Err("Error closing pipe: %v",err) // Yes, return nil object and error.
-		status=PipeError                   // Set status to PipeError
-		return status                      // Yes, signal error.
-	  }                                  // Done checking for error closing pipe.
+		status=PipeError                 // Set status to PipeError
+		return status                    // Yes, signal error.
+	  }                                // Done checking for error closing pipe.
 	  if status==Success||status==GotEOF{// No errors?
-		  break                            // Break out of the loop
-	  }                                  // Done checking for errors.
-  }                                    // Done reading from the pipe.
-    default:                           // We are in the parent process
+		  break                          // Break out of the loop
+	  }                                // Done checking for errors.
+  }                                  // Done reading from the pipe.
+    default:                         // We are in the parent process
 	    log.Inf("Parent process created.")// Parent process created
-	// -------------------------------- //
+	// ------------------------------- //
 	// We are the parent so we will be writing to the pipe. (8)
-	// -------------------------------- //
-      we,err:=p.GetWriteEnd()         // Get the write end of the pipe
-	     if err!=nil{                   // Did we error getting the write end of the pipe?
+	// ------------------------------- //
+      we,err:=p.GetWriteEnd()        // Get the write end of the pipe
+	     if err!=nil{                  // Did we error getting the write end of the pipe?
 	        log.Err("Error getting write end of pipe: %v",err) // Yes, log it.
-	        status=PipeReadError        // Report status
-          return status               // and, signal error.
-	     }                              // Done checking for error getting read end of pipe.
-       p.CloseRead()                  // Close the read end of the pipe
+	        status=PipeReadError       // Report status
+          return status              // and, signal error.
+	     }                             // Done checking for error getting read end of pipe.
+       p.CloseRead()                 // Close the read end of the pipe
 	  // ------------------------------ //
 	  // Now we write data to the pipe (9).
 	  // ------------------------------ //
