@@ -91,14 +91,16 @@ func SignalHandler(cancel context.CancelFunc) { // ------- SignalHandler -------
 				os.Exit(0) // Exit the program.
 			case syscall.SIGQUIT: // Is it a SIGQUIT signal?
 				log.War("Received SIGQUIT: Forcing shutdown.")
-				runShutdownCBs() // Run the shutdown callbacks.
-				cancel()         // Cancel the context.
+			 cancel()          // Cancel the context.
+    runShutdownCBs() // Run the shutdown callbacks.
 				os.Exit(0)
 			case syscall.SIGPIPE: // Is it a SIGPIPE signal?
 				log.War("Received SIGPIPE: Ignoring.")
 			default: // It was something else.
 				log.Err("Received unknown signal: %v", sig)
-				cancel()
+				cancel() // Cancel the context.
+    runShutdownCBs() // Run the shutdown CBs
+    os.Exit(1)
 			} // Done checking the signal.
 		} // Done waiting for signals.
 	}() // Done spawning the goroutine.
