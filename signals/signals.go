@@ -21,7 +21,7 @@ import (
 	"sync"      // For mutexes and locks
 	"syscall"   // For syscall handling
 
-	logger "github.com/perazaharmonics/project_name/internal/logger" // Our custom log package.
+	logger "github.com/perazaharmonics/gosys/internal/logger" // Our custom log package.
 )
 
 var (
@@ -71,7 +71,7 @@ func SignalHandler(cancel context.CancelFunc) { // ------- SignalHandler -------
 	// ---------------------------------- //
 	// Notify the channel when we receive these signals.
 	// ---------------------------------- //
-	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP, syscall.SIGQUIT)
+	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP, syscall.SIGQUIT,syscall.SIGPIPE)
 	// ---------------------------------- //
 	// Spawn a gouroutine that listens for signals and handles them on a separate
 	// thread.
@@ -85,20 +85,20 @@ func SignalHandler(cancel context.CancelFunc) { // ------- SignalHandler -------
 				log.ExitLog("Because we received a SIGHUP signal.")
 				log.Inf("Re-opened log file.") // Done handling SIGHUP.
 			case syscall.SIGINT, syscall.SIGTERM: // It was a SIGINT/SIGTERM signal?
-				log.War("Received %v: Starting graceful shutdown.", sig)
+				log.Inf("Received %v: Starting graceful shutdown.", sig)
 				cancel()         // Cancel the context.
 				runShutdownCBs() // Run the shutdown callbacks.
-				log.War("Shutdown complete. Exiting.")
 				os.Exit(0) // Exit the program.
 			case syscall.SIGQUIT: // Is it a SIGQUIT signal?
 				log.War("Received SIGQUIT: Forcing shutdown.")
 				runShutdownCBs() // Run the shutdown callbacks.
 				cancel()         // Cancel the context.
-				log.War("Shutdown complete. Exiting.")
-				os.Exit(1) // Exit the program.
+				os.Exit(0)
+			case syscall.SIGPIPE: // Is it a SIGPIPE signal?
+				log.War("Received SIGPIPE: Ignoring.")
 			default: // It was something else.
 				log.Err("Received unknown signal: %v", sig)
-				os.Exit(1) // Exit the program.
+				cancel()
 			} // Done checking the signal.
 		} // Done waiting for signals.
 	}() // Done spawning the goroutine.
