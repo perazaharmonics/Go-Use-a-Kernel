@@ -99,7 +99,7 @@ func SignalHandler(cancel context.CancelFunc) { // ------- SignalHandler -------
 			default: // It was something else.
 				log.Err("Received unknown signal: %v", sig)
 				cancel() // Cancel the context.
-    runShutdownCBs() // Run the shutdown CBs
+         runShutdownCBs() // Run the shutdown CBs
     os.Exit(1) // Bad stuff maybe
 			} // Done checking the signal.
 		} // Done waiting for signals.
