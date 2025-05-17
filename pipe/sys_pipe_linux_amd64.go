@@ -110,3 +110,28 @@ func GetAvailableBytes(fd int) (int, error) {
 	}
 	return n, nil
 }
+// Dup is a wrapper around the dup() syscall.
+func Dup(oldfd int) (int, error) {
+  r,_,e:=unix.Syscall(unix.SYS_DUP,uintptr(oldfd),0,0)
+  if e!=0{                              // syscall failed?
+	return 0,e                          // Yes, return 0 and error.
+  }                                     // No, return the new fd and nil.
+  return int(r),nil                     // Return the new fd and nil.
+}
+
+// Dup2 is a wrapper around the dup2() syscall.
+func Dup2(oldfd, newfd int) (int, error) {
+  r,_,e:=unix.Syscall(unix.SYS_DUP2,uintptr(oldfd),uintptr(newfd),0)
+  if e!=0{                              // syscall failed?
+    return 0,e                          // Yes, return 0 and error.
+  }                                     // No, return the new fd and nil.
+  return int(r),nil                     // Return the new fd and nil.
+}                                       // end of Dup2
+// Dup3 is a wrapper around the dup3() syscall.
+func Dup3(oldfd, newfd, flags int) (int, error) {
+  r,_,e:=unix.Syscall(unix.SYS_DUP3,uintptr(oldfd),uintptr(newfd),uintptr(flags))
+  if e!=0{                              // syscall failed?
+	return 0,e                          // Yes, return 0 and error.
+  }                                     // No, return the new fd and nil.
+  return int(r),nil                     // Return the new fd and nil.
+}
