@@ -180,7 +180,7 @@ func pipeToChild(buf []byte, log logger.Log) (int){
 	      status=PipeWriteEndClosed     // Set status to PipeWriteEndClosed
 	      return status                 // Yes, signal error.
       }                               // Done closing write fd
-    // -------------------------------- //
+    // ------------------------------ //
 	// Now we wait for the child to terminate (11).
 	// -------------------------------- //
 	  _,err=syscall.Wait4(int(pid),nil,0,nil) // Wait for the child to terminate
@@ -222,22 +222,12 @@ func main() {
   buf:=make([]byte,BUF_SIZE)            // Create a buffer for reading from the pipe
   utils.SetLogger(log)				          // Set the logger object
   status:=pipeToChild(buf,log)          // Call the pipeToChild function
-  if status!=Success{                   // Did we error in the pipeToChild function?
-    log.Err("Error in pipeToChild: %v",StatusToString(status)) // Yes, log it.
-  // fall through so we hit the shutdown callback.
-	cancel()                              // Yes, exit program.
-  } else{                               // Else no errors.
-    log.Inf("PipeToChild completed successfully.") // PipeToChild completed successfully
-	cancel()                              // Cancel the context.
-  }                                     // Done checking for errors.
-  // ---------------------------------- //
-  // This is the good ending.
-  // ---------------------------------- //
-  log.Inf("Exiting program.")           // Exiting program
-  // ---------------------------------- //
-  // Fire off context cancellation waiting and pray your SignalHandler can
-  // manage what we get.
-  // ---------------------------------- //
-  <-ctx.Done()                          // Wait for the context to be canceled.
-  utils.InvokeShutdownCBs()             // Nice.
+  if status!=Success{                   // Report the error
+    log.Err("Pipe to child process state returned: %s",StatusToString(status))
+  } else{                               // The good ending.
+    log.Inf("Pipe to child process state returned: %s",StatusToString(status))
+  }                                     // Done logging.
+  cancel()                              // Send context cancellation signal.
+  log.Inf("Program exited.")            // Log goodbye.
+  utils.InvokeShutdownCBs()             // Nice cleanup.
 }                                       // ------------ main ----------------- //
