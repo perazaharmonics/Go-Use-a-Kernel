@@ -11,11 +11,11 @@ import (
 )
 
 type Pipes struct {
-	rf   *os.File // Read end of the pipe
-	wf   *os.File // Write end of the pipe
+  rf   *os.File // Read end of the pipe
+  wf   *os.File // Write end of the pipe
   rfd  int      // Read file descriptor
   wfd  int      // Write file descriptor
-	flgs int      // Flags for pipe2
+  flgs int      // Flags for pipe2
 }
 
 // NewAnonymousPipe is like os.Pipe(), but uses our shim under the hood.
@@ -85,7 +85,7 @@ func (p *Pipes) GetWriteEnd() (*os.File, error) {
 // GetReadEnd returns the read end of the pipe.
 func (p *Pipes) GetReadEnd() (*os.File, error) {
   if p.rf == nil{                       // Is the read end of the pipe nil?
-	return nil, os.ErrInvalid             // Yes, return nil and error
+	return nil, os.ErrInvalid       // Yes, return nil and error
   }                                     // Done checking if the read end of the pipe is nil.
   return p.rf, nil                      // Return the read end of the pipe
 }                                       // ------------ GetReadEnd ---------- //
@@ -110,14 +110,14 @@ func (p *Pipes) Available(f *os.File) (int, error) {
 func (p *Pipes) Read(b []byte) (int, error) {
   if p.rf == nil {                      // Is the read end of the pipe nil?
     return 0, os.ErrInvalid             // Yes, return 0 and error
-  }	                                    // Done checking if the read end of the pipe is nil.
+  }	                                // Done checking if the read end of the pipe is nil.
   n, err := p.rf.Read(b)                // Read from the pipe
   return n, err                         // No error, return the number of bytes read and nil.
 }                                       // ------------ Read ----------------- //
 // Write() writes to the pipe and returns the number of bytes written.
 func (p *Pipes) Write(b []byte) (int, error) {
   if p.wf==nil{                         // Is the write end of the pipe nil?
-	return 0,os.ErrInvalid              // Yes, return 0 and error
+	return 0,os.ErrInvalid          // Yes, return 0 and error
   }                                     // Done checking if the write end of the pipe is nil.
   n,err:=p.wf.Write(b)                  // Write to the pipe
   return n,err                          // No error, return the number of bytes written and nil.
@@ -131,12 +131,12 @@ func (p *Pipes) Close() error {
 	  return err                        // Return the error closing the read end of the pipe.
 	}                                   // Done closing the read end of the pipe.
 	return p.wf.Close()                 // Close the write end of the pipe.
-}                                       // ------------ Close --------------- //
+}                                           // ------------ Close --------------- //
 
 // CloseRead closes the read end of the pipe.
 func (p *Pipes) CloseRead() error {
   if p.rf==nil{                         // Is the read end of the pipe nil?
-	return nil                          // Nothing to do, return nil.
+	return nil                      // Nothing to do, return nil.
   }                                     // Done checking if the read end of the pipe is nil.
   err:=p.rf.Close()                     // Close the read end of the pipe.
   p.rf=nil                              // Set the read end of the pipe to nil.
