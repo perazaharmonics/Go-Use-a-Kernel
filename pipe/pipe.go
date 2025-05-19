@@ -89,7 +89,20 @@ func (p *Pipes) GetReadEnd() (*os.File, error) {
   }                                     // Done checking if the read end of the pipe is nil.
   return p.rf, nil                      // Return the read end of the pipe
 }                                       // ------------ GetReadEnd ---------- //
-
+// GetReadEndFD return the read end of the pipe file descriptor.
+func (p *Pipes) GetReadEndFD() int {
+  if p.rf == nil{                       // Is the read end of the pipe nil?
+    return -1                           // Yes, return -1
+  }                                     // Done checking if read end is nil.
+  return p.rfd                          // Return fd[0]
+}                                       // ------------ GetReadEndFD --------- //
+// GetWriteEndFD return the write end of the pipe file descriptor.
+func (p *Pipes) GetWriteEndFD() int {
+  if p.wf == nil{                       // Is the write end of the pipe nil?
+    return -1                           // Yes, return -1
+  }                                     // Done checking if write end is nil.
+  return p.wfd                          // Return fd[1]
+}                                       // ------------ GetWriteEndFD -------- //
 // SetCapacity sets the pipe buffer size (bytes) on f.
 // Returns the new (kernel-adjusted) size.
 func (p *Pipes) SetCapacity(f *os.File, size int) (int, error) {
