@@ -13,23 +13,27 @@ import (
 type Pipes struct {
 	rf   *os.File // Read end of the pipe
 	wf   *os.File // Write end of the pipe
+  rfd  int      // Read file descriptor
+  wfd  int      // Write file descriptor
 	flgs int      // Flags for pipe2
 }
 
 // NewAnonymousPipe is like os.Pipe(), but uses our shim under the hood.
 // It returns the read & write ends as *os.File.
 func NewPipe() (*Pipes, error) {
-	rfd, wfd, err := Pipe()             // Call the low-level pipe syscall
-	if err != nil {                     // Did we error getting the pipe's fd?
-		return nil, err                 // Yes, return nil object and error.
-	}                                   // Done with error creating pipe.
-	return &Pipes{                      // Return our pipe object.
-		rf: os.NewFile(uintptr(rfd), "pipe-r"), // Create the read end of the pipe
-		wf: os.NewFile(uintptr(wfd), "pipe-w"), // Create the write end of the pipe
-	}, nil                              // Done creating pipe object.
+  rfd, wfd, err:= Pipe()                // Call the low-level pipe syscall
+  if err != nil {                       // Did we error getting the pipe's fd?
+    return nil, err                     // Yes, return nil object and error.
+  }                                     // Done with error creating pipe.
+  return &Pipes{                        // Return our pipe object.
+    rf: os.NewFile(uintptr(rfd), "pipe-r"), // Create the read end of the pipe
+    rfd: rfd,                           // Set the read file descriptor
+    wfd: wfd,                           // Set the write file descriptor
+    wf: os.NewFile(uintptr(wfd), "pipe-w"),// Create the write end of the pipe
+  }, nil                                // Done creating pipe object.
 }                                       // ------------ NewPipe ------------- //
 
-// NewPipeWithFlags is like os.Pipe() + fcntl flags—calls pipe2(2).
+// NewPipeWithFlags is like os.Pipe() + fcntl flags calls pipe2(2).
 // flags is any combination of O_CLOEXEC, O_NONBLOCK, etc.
 func NewPipe2(flags int) (*Pipes,error) {
   rfd,wfd,err:=Pipe2(flags)             // Call the low-level pipe2 syscall
@@ -37,22 +41,51 @@ func NewPipe2(flags int) (*Pipes,error) {
     return nil,err                      // Yes, return nil object and error.
   }                                     // Done with error creating pipe.
   return &Pipes{                        // Return our pipe object.
-	rf: os.NewFile(uintptr(rfd), "pipe-r"), // Create the read end of the pipe
-	wf: os.NewFile(uintptr(wfd), "pipe-w"), // Create the write end of the pipe
-	flgs: flags,                        // Set the flags for the pipe
-  },nil                                 // Done creating pipe object.
+    rf: os.NewFile(uintptr(rfd), "pipe-r"), // Create the read end of the pipe
+    rfd: rfd,                           // Set the read file descriptor
+    wfd: wfd,                           // Set the write file descriptor  
+    wf: os.NewFile(uintptr(wfd), "pipe-w"), // Create the write end of the pipe
+    flgs: flags,                        // Set the flags for the pipe
+    },nil                               // Done creating pipe object.
 }                                       // ------------ NewPipe2 ------------ //
+// Pipe return the read and write ends of the pipe given a file descriptor set.
+func Piper(fd []int32) (*Pipes,error){
+  if len(fd)!=2{                        // Did they give us a valid fd set?
+    return nil,os.ErrInvalid            // No, return nil and error.
+  }                                     // Done checking if the fd set is valid.
+  return &Pipes{                        // Return our pipe object.
+  rf: os.NewFile(uintptr(fd[0]), "pipe-r"), // Create the read end of the pipe
+  rfd: int(fd[0]),                      // Set the read file descriptor
+  wfd: int(fd[1]),                      // Set the write file descriptor
+  wf: os.NewFile(uintptr(fd[1]), "pipe-w"), // Create the write end of the pipe
+  },nil                                 // Done creating pipe object.
+}                                       // ------------ Piper -------------- //
+// Piper2 returns the read and write ends of the pipe given a file descriptor set
+// and the flags for the pipe.
+func Piper2(fd []int32,flags int) (*Pipes,error){
+  if len(fd)!=2{                        // Did they give us a valid fd set?
+    return nil,os.ErrInvalid            // No, return nil and error.
+  }                                     // Done checking if the fd set is valid.
+  return &Pipes{                        // Return our pipe object.
+  rf: os.NewFile(uintptr(fd[0]), "pipe-r"), // Create the read end of the pipe
+  rfd: int(fd[0]),                      // Set the read file descriptor
+  wfd: int(fd[1]),                      // Set the write file descriptor  
+  wf: os.NewFile(uintptr(fd[1]), "pipe-w"), // Create the write end of the pipe
+  flgs: flags,                          // Set the flags for the pipe
+  },nil                                 // Done creating pipe object.
+}                                       // ------------ Piper2 ------------- //
+
 // GetWriteEnd returns the write end of the pipe.
 func (p *Pipes) GetWriteEnd() (*os.File, error) {
   if p.wf == nil {                      // Is the write end of the pipe nil?
     return nil, os.ErrInvalid           // Yes, return nil and error
-  }									    // Done checking if the write end of the pipe is nil.
+  }					// Done checking if the write end of the pipe is nil.
   return p.wf, nil                      // Return the write end of the pipe
 }                                       // ------------ GetWriteEnd --------- //
 // GetReadEnd returns the read end of the pipe.
 func (p *Pipes) GetReadEnd() (*os.File, error) {
   if p.rf == nil{                       // Is the read end of the pipe nil?
-	return nil, os.ErrInvalid           // Yes, return nil and error
+	return nil, os.ErrInvalid             // Yes, return nil and error
   }                                     // Done checking if the read end of the pipe is nil.
   return p.rf, nil                      // Return the read end of the pipe
 }                                       // ------------ GetReadEnd ---------- //
@@ -118,7 +151,7 @@ func (p *Pipes) CloseWrite() error {
   p.wf=nil                              // Set the write end of the pipe to nil.
   return err                            // Return the error closing the write end of the pipe.
 }                                       // ------------ CloseWrite ---------- //
-// DupFile duplicates f’s descriptor (using SYS_DUP) and returns a new *os.File.
+// DupFile duplicates fs descriptor (using SYS_DUP) and returns a new *os.File.
 func DupFile(f *os.File) (*os.File,error) {
   // ---------------------------------- //
   // Create a new file with the lowest available file descriptor.
@@ -134,7 +167,7 @@ func DupFile(f *os.File) (*os.File,error) {
   return os.NewFile(uintptr(newfd),f.Name()),nil// Return new file and nil error.
 }                                       // ------------ DupFile -------------- //
 
-// Dup2File duplicates f’s descriptor (using SYS_DUP2) and returns a new *os.File.
+// Dup2File duplicates fs descriptor (using SYS_DUP2) and returns a new *os.File.
 func Dup2File(f *os.File, newfd int) (*os.File,error) {
   // ---------------------------------- //
   // Create a new file with the lowest available file descriptor.
@@ -166,6 +199,46 @@ func Dup3File(f *os.File, newfd int, flags int) (*os.File,error) {
   }                                     // Done with error duplicating the file descriptor.
   return os.NewFile(uintptr(newfd),f.Name()),nil// Return new file and nil error.
 }
+
+// DupFile duplicates fs descriptor (using SYS_DUP) and returns a new *os.File.
+func DupFD(fd int) (int,error) {
+  // ---------------------------------- //
+  // Create a new file with the lowest available file descriptor.
+  // ---------------------------------- //
+  oldfd:=fd                             // Get the file descriptor of the file.
+  newfd,err:=Dup(oldfd)                 // Duplicate the file descriptor.
+  if err!=nil{                          // Did we error duplicating the file descriptor?
+    return 0,err                        // Yes, return nil and error.
+  }                                     // Done with error duplicating the file descriptor.
+  return newfd,nil                      // Return the new fd and nuil error.
+}                                       // ------------ DupFile -------------- //
+
+// Dup2FD duplicates a fd. It takes an old fd and a new fd. If newfd is already
+// open, it will be closed first. Then newfd is made a copy of oldfd. Meaning
+// that both file descriptors refer to the same open file description.
+func Dup2FD(oldfd, newfd int) (int,error) {
+  // ---------------------------------- //
+  // Create a new file with the lowest available file descriptor.
+  // ---------------------------------- //
+  newfd,err:=Dup2(oldfd,newfd)          // Duplicate the file descriptor.
+  if err!=nil{                          // Did we error duplicating the file descriptor?
+    return 0,err                        // Yes, return nil and error.
+  }                                     // Done with error duplicating the file descriptor.
+  return newfd,nil                      // Return the new fd and nuil error.
+}                                       // ------------ Dup2File ------------- //
+
+// Dup3FD is the same as Dup2FD except that it takes a flag argument.
+func Dup3FD(oldfd, newfd, flags int) (int,error) {
+  // ---------------------------------- //
+  // Create a new file with the lowest available file descriptor.
+  // ---------------------------------- //
+  newfd,err:=Dup3(oldfd,newfd,flags)    // Duplicate the file descriptor.
+  if err!=nil{                          // Did we error duplicating the file descriptor?
+    return 0,err                        // Yes, return nil and error.
+  }                                     // Done with error duplicating the file descriptor.
+  return newfd,nil                      // Return the new fd and nuil error.
+}                                       // ----------- Dup3File ------------- //
+
 
 // POpen starts 'sh -c cmd' and returns an *os.File hooked to either the child's
 // stdout (in r mode) os stdin (in w mode), plus the Go *os.Process you can Wait()
@@ -229,7 +302,7 @@ func CreateFIFO(path string, perm os.FileMode) error {
 func OpenFIFO(path string, perm os.FileMode) (*os.File, error) {
   f,err:=os.OpenFile(path,os.O_RDWR|os.O_CREATE|os.O_EXCL,perm) // Open the FIFO
   if err!=nil{                          // Did we error opening the FIFO?
-	return nil,err                        // Yes, return nil object and error.
+	return nil,err                  // Yes, return nil object and error.
   }                                     // Done with error opening FIFO.
   return f,nil                          // Return the FIFO object.
 }                                       // ------------ OpenFIFO ------------ //
@@ -237,7 +310,7 @@ func OpenFIFO(path string, perm os.FileMode) (*os.File, error) {
 func CloseFIFO(path string) error {
   err:=os.Remove(path)                  // Remove the FIFO
   if err!=nil{                          // Did we error removing the FIFO?
-	return err                            // Yes, return the error.
-  }									                    // Done with error removing FIFO.
+	return err                      // Yes, return the error.
+  }					// Done with error removing FIFO.
   return nil                            // No error, return nil.
 }                                       // ------------ CloseFIFO ----------- //
