@@ -139,11 +139,11 @@ func (p *Pipes) Write(b []byte) (int, error) {
 // Close closes the read and write files associated with the pipe by being given
 // the read or write file descriptor.
 func (p *Pipes) Close() error {
-	if err:=p.rf.Close();err!=nil{      // Did we error closing the read end of the pipe?
-	  _=p.wf.Close()                    // Yes, close the write end of the pipe.
-	  return err                        // Return the error closing the read end of the pipe.
-	}                                   // Done closing the read end of the pipe.
-	return p.wf.Close()                 // Close the write end of the pipe.
+  if err:=p.rf.Close();err!=nil{            // Did we error closing the read end of the pipe?
+    _=p.wf.Close()                          // Yes, close the write end of the pipe.
+    return err                              // Return the error closing the read end of the pipe.
+    }                                       // Done closing the read end of the pipe.
+  return p.wf.Close()                       // Close the write end of the pipe.
 }                                           // ------------ Close --------------- //
 
 // CloseRead closes the read end of the pipe.
@@ -153,15 +153,17 @@ func (p *Pipes) CloseRead() error {
   }                                     // Done checking if the read end of the pipe is nil.
   err:=p.rf.Close()                     // Close the read end of the pipe.
   p.rf=nil                              // Set the read end of the pipe to nil.
+  p.rfd=-1                              // Set read fd to -1.
   return err                            // Return the error closing the read end of the pipe.
 }                                       // ------------ CloseRead ----------- //
 // CloseWrite closes the write end of the pipe.
 func (p *Pipes) CloseWrite() error {
   if p.wf==nil{                         // Is the write end of the pipe nil?
-	return nil                            // Nothing to do, return nil.
+	return nil                      // Nothing to do, return nil.
   }                                     // Done checking if the write end of the pipe is nil.
   err:=p.wf.Close()                     // Close the write end of the pipe.
   p.wf=nil                              // Set the write end of the pipe to nil.
+  p.wfd=-1                              // Set write end fd to -1.
   return err                            // Return the error closing the write end of the pipe.
 }                                       // ------------ CloseWrite ---------- //
 // DupFile duplicates fs descriptor (using SYS_DUP) and returns a new *os.File.
