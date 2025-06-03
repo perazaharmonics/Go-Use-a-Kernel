@@ -3,7 +3,6 @@ package perf
 import(
   "encoding/binary"
 	"fmt"
-	"os"
   "syscall"
 
 	"golang.org/x/sys/unix"
