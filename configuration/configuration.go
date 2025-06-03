@@ -40,6 +40,10 @@ import (
 	"path/filepath"
 	"reflect"
 	"strings"
+	"strconv"
+	"time"
+
+	"golang.org/x/sys/unix"
 )
 const debug=true
 const uselog=true
@@ -105,10 +109,10 @@ func CopyComment(c *Comment) *Comment{
 // ------------------------------------ //
 // Inline getters and setters for the Comment object.
 // ------------------------------------ //
-func (c *Comment) GetValue() string{ return c.value }                                     // ------------ GetValue ------------ //
+func (c *Comment) GetValue() string{ return c.value }                                     
 func (c *Comment) GetNext() *Comment{ return c.next }                                      
 func (c *Comment) SetNext(p *Comment){ if c!=nil{ c.next=p } }                                       
-func (c *Comment) IsImported() bool{ return c.isimported}                                       // ------------ IsImported ----------- //
+func (c *Comment) IsImported() bool{ return c.isimported}                                      
 func (c *Comment) IsImportStatement() bool{
 	if c!=nil{                            // Anything to get?
 	  return c.imports                    // Yes, return the imports flag.
@@ -192,7 +196,344 @@ func (p *Parameter) GetName() string{ return p.name }
 func (p *Parameter) GetNext() *Parameter{ return p.next }
 func (p *Parameter) SetNext(p2 *Parameter){ if p!=nil{ p.next=p2 } }
 
-// ----------------------- ScanValue() ---------------------------- //
+// ------------------------ // GetValueByte() // ---------------------------- //
+// Get the value of a parameter as a byte (8-bit character)
+// -------------------------------------------------------------------------- //
+func (p *Parameter) GetValueByte(value string, dest *byte) error{
+  if len(value)==0{                     // Where we given a value to decode? 
+	  return fmt.Errorf("can't decode empty \"value\" to byte")// No, that's bad.
+	}                                     // Done checking for empty value.
+	return p.scanValue("%c",dest)        // Decode the value into the destination byte.
+}                                       // --------- GetValueByte ----------- //
+// ------------------------ // GetValueOfIndexByte() // --------------------- //
+// Get the value of a multi-valued Parameter as a byte (8-bit character).
+// -------------------------------------------------------------------------- //
+func (p *Parameter) GetValueByteByIndex(i uint,dest *byte) error{
+  if int(i)>=len(p.values){              // Where we given a value to decode?
+	  return fmt.Errorf("can't decode empty \"value\" to byte")// No, that's bad.
+	}                                     // Done checking for empty value.
+	return p.scanValueByIndex(int(i),"%c",dest)//Decode value into destination byte.
+}                                       // ------- GetValueByteByIndex ------ //
+
+// ------------------------ // GetValueTime() // ---------------------------- //
+// Get the value of a parameter as a time.Time object. The value must be in a
+// format that can be parsed by time.Parse(). The format is:
+//   "2006-01-02 15:04:05" or "2006-01-02T15:04:05Z07:00" or "2006-01-02T15:04:05Z"
+// -------------------------------------------------------------------------- //
+func (p *Parameter) GetValueTime(value string, dest *time.Time) error{
+  if len(value)==0{                     // Where we given a value to decode?
+	  return fmt.Errorf("can't decode empty \"value\" to time.Time")// No, that's bad.
+	}                                     // Done checking for empty value.
+	t,err:=time.Parse(time.RFC3339,value) // Parse the value as a time.
+	if err!=nil{                          // Any error parsing the time?
+	  return fmt.Errorf("can't decode \"%s\" to time.Time: %v", value, err)
+	}                                     // Done checking for parse error.
+	*dest=t                               // Set the destination time to the parsed time.
+	return nil                            // Return nil if we got here.   
+}                                       // -------- GetValueTime ------------ //
+func (p *Parameter) GetValueTimeByIndex(i uint, dest *time.Time) error{
+  if i>=uint(len(p.values)){            // Is the index out of range?
+	  return fmt.Errorf("index %d out of range", i)// Yes, panic.
+	}                                     // Done checking for out of range index.
+	q:=p.values[i]                        // Get the value at the index.
+	t,err:=time.Parse(time.RFC3339,q)     // Parse the value as a time.
+	if err!=nil{                          // Any error parsing the time?
+	  return fmt.Errorf("can't decode \"%s\" to time.Time: %v", q, err)
+	}                                     // Done checking for parse error.
+	*dest=t                               // Set the destination time to the parsed time.
+	return nil                            // Return nil if we got here.   
+}                                       // ---- GetValueTimeByIndex -------- //
+func (p *Parameter) GetValueTimespec(value string, dest *unix.Timespec) error{
+  if len(value)==0{                     // Where we given a value to decode?
+	  return fmt.Errorf("can't decode empty \"value\" to unix.Timespec")// No, that's bad.
+	}                                     // Done checking for empty value.
+	t,err:=time.Parse(time.RFC3339,value) // Parse the value as a time.
+	if err!=nil{                          // Any error parsing the time?
+	  return fmt.Errorf("can't decode \"%s\" to unix.Timespec: %v", value, err)
+	}                                     // Done checking for parse error.
+	unix.NsecToTimespec(t.UnixNano()) 	  // Convert the time to a unix.Timespec.
+	*dest=unix.NsecToTimespec(t.UnixNano()) // Set the destination time to the parsed time.
+	return nil                            // Return nil if we got here.   
+}                                       // -------- GetValueTimespec -------- //
+func (p *Parameter) GetValueTimespecByIndex(i uint,dest *unix.Timespec)error{
+  if i>=uint(len(p.values)){            // Is the index out of range?
+	  return fmt.Errorf("index %d out of range", i)// Yes, panic.
+	}                                     // Done checking for out of range index.
+	q:=p.values[i]                        // Get the value at the index.
+	t,err:=time.Parse(time.RFC3339,q)     // Parse the value as a time.
+	if err!=nil{                          // Any error parsing the time?
+	  return fmt.Errorf("can't decode \"%s\" to time.Time: %v", q, err)
+	}                                     // Done checking for parse error.
+	unix.NsecToTimespec(t.UnixNano()) 	  // Convert the time to a unix.Timespec.
+	*dest=unix.NsecToTimespec(t.UnixNano()) // Set the destination time to the parsed time.
+	return nil                            // Return nil if we got here.
+}                                       // ---- GetValueTimeByIndex --------- //
+func (p *Parameter) GetValueDuration(value string, dest *time.Duration) error{
+  if len(value)==0{                     // Where we given a value to decode?
+	  return fmt.Errorf("can't decode empty \"value\" to time.Duration")// No, that's bad.
+	}                                     // Done checking for empty value.
+	d,err:=time.ParseDuration(value)      // Parse the value as a duration.
+	if err!=nil{                          // Any error parsing the duration?
+	  return fmt.Errorf("can't decode \"%s\" to time.Duration: %v", value, err)
+	}                                     // Done checking for parse error.
+	*dest=d                               // Set the destination duration to the parsed duration.
+	return nil                            // Return nil if we got here.   
+}                                       // -------- GetValueDuration -------- //
+func (p *Parameter) GetValueDurationByIndex(i uint, value string,dest *time.Duration) error{
+  if i>=uint(len(p.values)){            // Is the index out of range?
+	  return fmt.Errorf("index %d out of range", i)// Yes, panic.
+	}                                     // Done checking for out of range index.
+	q:=p.values[i]                        // Get the value at the index.
+	d,err:=time.ParseDuration(q)          // Parse the value as a duration.
+	if err!=nil{                          // Any error parsing the duration?
+	  return fmt.Errorf("can't decode \"%s\" to time.Duration: %v", q, err)
+	}                                     // Done checking for parse error.
+	*dest=d                               // Set the destination duration to the parsed duration.
+	return nil                            // Return nil if we got here.   
+}                                       // ---- GetValueDurationByIndex ----- //
+
+// ----------------------- GetValueInt -------------------------------------- //
+// Decode a value of a parameter into the given format, and place it into the
+// given destination integer.
+// -------------------------------------------------------------------------- //
+func (p *Parameter) GetValueInt(value string, dest *int) error{
+  if len(value)==0{                     
+	  return fmt.Errorf("can't decode empty \"value\" to int")
+	}                                     
+	return p.scanValue("%d",dest)        
+}                                       
+func (p *Parameter)	GetValueIntByIndex(i uint,dest *int) error{
+  if int(i)>=len(p.values){              
+	  return fmt.Errorf("can't decode empty \"value\" to byte")
+	}                                     
+	return p.scanValueByIndex(int(i),"%d",dest)
+}                                       
+func (p *Parameter) GetValueInt8(value string, dest *int8) error{
+  if len(value)==0{                     
+	  return fmt.Errorf("can't decode empty \"value\" to int8")
+	}                                     
+	return p.scanValue("%d",dest)        
+}                                       
+func (p *Parameter)	GetValueInt8ByIndex(i uint,dest *int8) error{
+  if int(i)>=len(p.values){              
+	  return fmt.Errorf("can't decode empty \"value\" to int8")
+	}                                     
+	return p.scanValueByIndex(int(i),"%d",dest)
+}                                       
+func (p *Parameter) GetValueInt16(value string, dest *int16) error{
+  if len(value)==0{                     
+	  return fmt.Errorf("can't decode empty \"value\" to int16")
+	}                                     
+	return p.scanValue("%d",dest)        
+}                                       
+func (p *Parameter)	GetValueInt16ByIndex(i uint,dest *int16) error{
+  if int(i)>=len(p.values){              
+	  return fmt.Errorf("can't decode empty \"value\" to int16")
+	}                                     
+	return p.scanValueByIndex(int(i),"%d",dest)
+}                                       
+func (p *Parameter) GetValueInt32(value string, dest *int32) error{
+  if len(value)==0{                     
+	  return fmt.Errorf("can't decode empty \"value\" to int32")
+	}                                     
+	return p.scanValue("%d",dest)        
+}                                       
+func (p *Parameter)	GetValueIn32tByIndex(i uint,dest *int32) error{
+  if int(i)>=len(p.values){              
+	  return fmt.Errorf("can't decode empty \"value\" to int32")
+	}                                     
+	return p.scanValueByIndex(int(i),"%d",dest)
+}                                       
+func (p *Parameter) GetValueInt64(value string, dest *int64) error{
+  if len(value)==0{                     
+	  return fmt.Errorf("can't decode empty \"value\" to int64")
+	}                                     
+	return p.scanValue("%d",dest)        
+}                                       
+func (p *Parameter)	GetValueInt64ByIndex(i uint,dest *int64) error{
+  if int(i)>=len(p.values){              
+	  return fmt.Errorf("can't decode empty \"value\" to int64")
+	}                                     
+	return p.scanValueByIndex(int(i),"%d",dest)
+}                                       
+func (p *Parameter)	GetValueRune(value string, dest *rune) error{
+  if len(value)==0{                     
+	  return fmt.Errorf("can't decode empty \"value\" to rune")
+	}
+	return p.scanValue("%c",dest)
+}
+func (p *Parameter)	GetValueRuneByIndex(i uint,dest *rune) error{
+  if int(i)>=len(p.values){              
+	  return fmt.Errorf("can't decode empty \"value\" to rune")
+	}
+	return p.scanValueByIndex(int(i),"%c",dest)
+}
+func (p *Parameter)	GetValueBinary(value string, dest *string) error{
+  if len(value)==0{                     
+	  return fmt.Errorf("can't decode empty \"value\" to binary")
+	}                                     
+	return p.scanValue("%b",dest)        
+}
+func (p *Parameter)	GetValueHex(value string, dest *string) error{
+  if len(value)==0{                     
+	  return fmt.Errorf("can't decode empty \"value\" to hex")
+	}                                     
+	return p.scanValue("%x",dest)        
+}
+func (p *Parameter)	GetValueOctal(value string, dest *string) error{
+  if len(value)==0{                     
+	  return fmt.Errorf("can't decode empty \"value\" to octal")
+	}                                     
+	return p.scanValue("%o",dest)        
+}
+// ----------------------- Unsigned Integers -------------------------------- //
+
+func (p *Parameter) GetValueUint(value string, dest *uint) error{
+  if len(value)==0{                     
+	  return fmt.Errorf("can't decode empty \"value\" to uint")
+	}                                     
+	return p.scanValue("%u",dest)        
+}                                       
+func (p *Parameter)	GetValueUintByIndex(i uint,dest *uint) error{
+  if int(i)>=len(p.values){              
+	  return fmt.Errorf("can't decode empty \"value\" to uint")
+	}                                     
+	return p.scanValueByIndex(int(i),"%u",dest)
+}                                       
+func (p *Parameter) GetValueUint8(value string, dest *uint8) error{
+  if len(value)==0{                     
+	  return fmt.Errorf("can't decode empty \"value\" to uint")
+	}                                     
+	return p.scanValue("%u",dest)        
+}                                       
+func (p *Parameter)	GetValueUint8ByIndex(i uint,dest *uint8) error{
+  if int(i)>=len(p.values){              
+	  return fmt.Errorf("can't decode empty \"value\" to uint")
+	}                                     
+	return p.scanValueByIndex(int(i),"%u",dest)
+}   
+func (p *Parameter) GetValueUint16(value string, dest *uint16) error{
+  if len(value)==0{                     
+	  return fmt.Errorf("can't decode empty \"value\" to uint16")
+	}                                     
+	return p.scanValue("%u",dest)        
+}                                       
+func (p *Parameter)	GetValueUint16ByIndex(i uint,dest *uint16) error{
+  if int(i)>=len(p.values){              
+	  return fmt.Errorf("can't decode empty \"value\" to uint16")
+	}                                     
+	return p.scanValueByIndex(int(i),"%u",dest)
+}
+func (p *Parameter) GetValueUint32(value string, dest *uint32) error{
+  if len(value)==0{                     
+	  return fmt.Errorf("can't decode empty \"value\" to uint32")
+	}                                     
+	return p.scanValue("%u",dest)        
+}                                       
+func (p *Parameter)	GetValueUint32ByIndex(i uint,dest *uint32) error{
+  if int(i)>=len(p.values){              
+	  return fmt.Errorf("can't decode empty \"value\" to uint32")
+	}                                     
+	return p.scanValueByIndex(int(i),"%u",dest)
+}
+func (p *Parameter) GetValueUint64(value string, dest *uint64) error{
+  if len(value)==0{                     
+	  return fmt.Errorf("can't decode empty \"value\" to uint32")
+	}                                     
+	return p.scanValue("%u",dest)        
+}                                       
+func (p *Parameter)	GetValueUint64ByIndex(i uint,dest *uint64) error{
+  if int(i)>=len(p.values){              
+	  return fmt.Errorf("can't decode empty \"value\" to uint64")
+	}                                     
+	return p.scanValueByIndex(int(i),"%u",dest)
+}                         
+// ---------------------- Floating point values ----------------------------- //
+func (p *Parameter)	GetValueFloat32(value string, dest *float32) error{
+  if len(value)==0{                     
+	  return fmt.Errorf("can't decode empty \"value\" to float32")
+	}                                     
+	return p.scanValue("%f",dest)        
+}
+func (p *Parameter)	GetValueFloat32ByIndex(i uint,dest *float32) error{
+  if int(i)>=len(p.values){              
+	  return fmt.Errorf("can't decode empty \"value\" to float32")
+	}                                     
+	return p.scanValueByIndex(int(i),"%f",dest)
+}
+func (p *Parameter)	GetValueFloat64(value string,dest *float64) error{
+  if len(value)==0{                     
+	  return fmt.Errorf("can't decode empty \"value\" to float64")
+	}                                     
+	return p.scanValue("%f",dest)        
+}
+func (p *Parameter)	GetValueFloat64ByIndex(i uint,dest *float64) error{
+  if int(i)>=len(p.values){              
+	  return fmt.Errorf("can't decode empty \"value\" to float64")
+	}                                     
+	return p.scanValueByIndex(int(i),"%f",dest)
+}
+	// Scientific notation
+func (p *Parameter)	GetValueSI(value string,dest *string) error{
+  if len(value)==0{                     
+	  return fmt.Errorf("can't decode empty \"value\" to scientific notation")
+	}                                     
+	return p.scanValue("%e",dest)        
+}
+// ------------------- Floating point values with precision ----------------- //
+func (p *Parameter)	GetValuePrecisionFloat32(value,precision string,dest *float32) error{
+  if len(value)==0{              
+	  return fmt.Errorf("can't decode empty \"value\" to float32")
+	}
+	return p.scanValue(fmt.Sprintf("%%.%sf", precision), dest)  
+}
+func (p *Parameter)	GetValuePrecisionFloat32ByIndex(i uint,precision string,dest *float32) error{
+  if int(i)>=len(p.values){              
+	  return fmt.Errorf("can't decode empty \"value\" to float32")
+	}
+	return p.scanValueByIndex(int(i), fmt.Sprintf("%%.%sf", precision), dest)
+}
+func (p *Parameter)	GetValuePrecisionFloat64(value,precision string,dest *float64) error{
+  if len(value)==0{                     
+	  return fmt.Errorf("can't decode empty \"value\" to float64")
+	}                                     
+	return p.scanValue(fmt.Sprintf("%%.%sf", precision), dest)  
+}
+func (p *Parameter)	GetValuePrecisionFloat64ByIndex(i uint,precision string,dest *float64) error{
+  if int(i)>=len(p.values){              
+	  return fmt.Errorf("can't decode empty \"value\" to float64")
+	}                                     
+	return p.scanValueByIndex(int(i), fmt.Sprintf("%%.%sf", precision), dest)
+}
+
+// ---------------------- Complex numbers ----------------------------------- //
+func (p *Parameter)	GetValueComplex64(value string,dest *complex64) error{
+  if len(value)==0{                     
+	  return fmt.Errorf("can't decode empty \"value\" to complex64")
+	}                                     
+	return p.scanValue("%v",dest)        
+}  
+
+func (p *Parameter)	GetValueComplex64ByIndex(i uint,dest *complex64) error{
+  if int(i)>=len(p.values){              
+	  return fmt.Errorf("can't decode empty \"value\" to complex4")
+	}                                     
+	return p.scanValueByIndex(int(i),"%v",dest)
+}
+func (p *Parameter)	GetValueComplex128(value string,dest *complex128) error{
+  if len(value)==0{                     
+	  return fmt.Errorf("can't decode empty \"value\" to complex128")
+	}                                     
+	return p.scanValue("%v",dest)        
+}
+func (p *Parameter)	GetValueComplex128ByIndex(i uint,dest *complex128) error{
+  if int(i)>=len(p.values){              
+	  return fmt.Errorf("can't decode empty \"value\" to complex128")
+	}                                     
+	return p.scanValueByIndex(int(i),"%v",dest)
+}
+
+// ----------------------- ScanValueOfIndex --------------------------------- //
 // Decode a value of a multi-valued Parameter into the given format, and place
 // if into the given buffer so it can be obtained by address.
 // The format is one of the following:
@@ -221,7 +562,40 @@ func (p *Parameter) SetNext(p2 *Parameter){ if p!=nil{ p.next=p2 } }
 //   "%<width>.<precision>f"- float with width and precision
 //   "%<width>s" - Pad string with spaces set to width.
 // -------------------------------------------------------------------------- //
-func (p *Parameter) ScanValue(i int, format string, dest any) error{
+func (p *Parameter) scanValue(format string, dest any) error{
+  if len(p.value)==0{       // Within range?
+	return fmt.Errorf("The value of the parameter %s is %v",p.name,p.value)
+  }                                     // Done checking for out of range.
+  var verb byte                         // The format verb.
+  for j:=1;j<len(format);j++{           // For each character in fmt string...
+	  c:=format[j]                        // Get the j'th characer.
+		// -------------------------------- //
+		// We need to check if 'c' is one of the characters that can legally
+		// appear in the *flags, width, precision or modifier* part of a fmt string.
+		// if it is, we will skip it and continue scanning the next character.
+		// -------------------------------- //
+		if strings.ContainsRune("#0- +. '0123456789*",rune(c)){ continue }
+		// -------------------------------- //
+		// Otherwise we have reached the first character that is not a flag, digit,
+		// dot or star, so by definition this is the format verb.
+		// -------------------------------- //
+		verb=c                              // The format verb.
+		break                               // We found the verb so break from loop.
+	}                                     // Done iterating through the format string.
+  if verb!=0&&!verbComaptible(verb,reflect.TypeOf(dest).Elem().Kind()){
+	  return fmt.Errorf("format %s is not compatible with type %s", format, reflect.TypeOf(dest).Elem().Kind())
+	}                                     // Done checking for format compatibility.
+  val:=reflect.ValueOf(dest).Kind()     // Get the type of the dest variable.
+	if dest==nil||val!=reflect.Ptr{       // Is dest nil or not a pointer?
+	return errors.New("destination must be a non-nil pointer")// Yes, return an error.
+  }                                     // Done checking for nil or pointer.
+  //raw:=p.GetValue(uint(i))                              
+	// Scan the value into the destination variable
+  _,err:=fmt.Sscanf(string(p.value),format,dest)
+	return err                            // Return error if any.  
+}
+// ----------------------- scanValueByIndex --------------------------------- //
+func (p *Parameter) scanValueByIndex(i int, format string, dest any) error{
   if i < 0 || i >= len(p.values){       // Within range?
 	return fmt.Errorf("index %d out of range", i)
   }                                     // Done checking for out of range.
@@ -252,7 +626,7 @@ func (p *Parameter) ScanValue(i int, format string, dest any) error{
 	// Scan the value into the destination variable
   _,err:=fmt.Sscanf(string(p.values[i]),format,dest)
 	return err                            // Return error if any.
-}                                       // ------------ ScanValue ----------- //
+}                                       // --------- ScanValueOfIndex -------- //
 // ----------------------------- // GetValueBool // ------------------------- //
 //  Get the value of a bool parameter. If values are given for true and       //
 // false, then the result must match one or the other. If you give either a   //
@@ -793,6 +1167,402 @@ func (s *Section) GetValue(name string, i uint) string{
 	return ""                             // Otherwise return empty string.
 }                                       // ----------- GetValue ------------ //
 
+// --------------------------- // GetValue // ------------------------------- //
+// Get the value from a given Parameter pertaining to this section.
+// -------------------------------------------------------------------------- //
+
+// ----------------------- Byte values (character values) ------------------- //
+func (s *Section)	GetValueByte(name string, dest *byte) error{
+  p:=s.GetValue(name,0)                 
+	if len(p)==0{
+	  return fmt.Errorf("can't decode empty \"value\" to byte")
+	}
+	return s.scanValue(p,"%c",dest) 
+}
+func (s *Section)	GetValueByteByIndex(name string,i uint,dest *byte) error{
+  if len(name)==0{
+	  return fmt.Errorf("name cannot be empty")
+	}
+	return s.scanValueByIndex(name,int(i),"%c",dest)
+}
+
+// -------------------------- Times and durations -------------------------- //
+func (s *Section)	GetValueTimespec(name string, dest *unix.Timespec) error{
+  p:=s.GetValue(name,0)                 
+  if len(p)==0{                         // Where we given a value to decode?
+	  return fmt.Errorf("can't decode empty \"value\" to unix.Timespec")// No, that's bad.
+	}                                     // Done checking for empty value.
+	t,err:=time.Parse(time.RFC3339,p) // Parse the value as a time.
+	if err!=nil{                          // Any error parsing the time?
+	  return fmt.Errorf("can't decode \"%s\" to unix.Timespec: %v", p, err)
+	}                                     // Done checking for parse error.
+	unix.NsecToTimespec(t.UnixNano()) 	  // Convert the time to a unix.Timespec.
+	*dest=unix.NsecToTimespec(t.UnixNano()) // Set the destination time to the parsed time.
+	return nil                            // Return nil if we got here.
+}
+func (s *Section)	GetValueTimespecByIndex(name string,i uint,dest *unix.Timespec) error{
+  p:=s.GetValue(name,i)                 // Get the value for the given name.
+	if i>=uint(len(p)){                   // Is the index out of range?
+	  return fmt.Errorf("index %d out of range", i)// Yes, panic.
+	}                                     // Done checking for out of range index.
+	q:=p                                  // Get the value at the index.
+	t,err:=time.Parse(time.RFC3339,q)     // Parse the value as a time.
+	if err!=nil{                          // Any error parsing the time?
+	  return fmt.Errorf("can't decode \"%s\" to time.Time: %v", q, err)
+	}                                     // Done checking for parse error.
+	unix.NsecToTimespec(t.UnixNano()) 	  // Convert the time to a unix.Timespec.
+	*dest=unix.NsecToTimespec(t.UnixNano()) // Set the destination time to the parsed time.
+	return nil                            // Return nil if we got here.
+}
+func (s *Section)	GetValueDuration(name string, dest *time.Duration) error{
+  p:=s.GetValue(name,0)                 // Get the value for the given name.
+	if len(p)==0{                         // Where we given a value to decode?
+	  return fmt.Errorf("can't decode empty \"value\" to time.Duration")// No, that's bad.
+	}                                     // Done checking for empty value.
+	d,err:=time.ParseDuration(p)          // Parse the value as a duration.
+	if err!=nil{                          // Any error parsing the duration?
+	  return fmt.Errorf("can't decode \"%s\" to time.Duration: %v", name, err)
+	}                                     // Done checking for parse error.
+	*dest=d                               // Set the destination duration to the parsed duration.
+	return nil                            // Return nil if we got here.  
+}
+func (s *Section)	GetValueDurationByIndex(name string,i uint,dest *time.Duration) error{
+  p:=s.GetValue(name,i)						      // Get the value for the given name.
+	if i>=uint(len(p)){                   // Is the index out of range?
+	  return fmt.Errorf("index %d out of range", i)// Yes, panic.
+	}                                     // Done checking for out of range index.
+	q:=p                                  // Get the value at the index.
+	d,err:=time.ParseDuration(q)          // Parse the value as a duration.
+	if err!=nil{                          // Any error parsing the duration?
+	  return fmt.Errorf("can't decode \"%s\" to time.Duration: %v", q, err)
+	}                                     // Done checking for parse error.
+	*dest=d                               // Set the destination duration to the parsed duration.
+	return nil                            // Return nil if we got here. 
+}
+// Time since epoch
+func (s *Section)	GetValueTime(name string, dest *time.Time) error{
+  p:=s.GetValue(name,0)                 // Get the value for the given name.
+	if len(p)==0{                         // Where we given a value to decode?
+	  return fmt.Errorf("can't decode empty \"value\" to time.Time")// No, that's bad.
+	}                                     // Done checking for empty value.
+	t,err:=time.Parse(time.RFC3339,p)     // Parse the value as a time.
+	if err!=nil{                          // Any error parsing the time?
+	  return fmt.Errorf("can't decode \"%s\" to time.Time: %v", name, err)
+	}                                     // Done checking for parse error.
+	*dest=t                               // Set the destination time to the parsed time.
+	return nil                            // Return nil if we got here.	
+	}
+func (s *Section)	GetValueTimeByIndex(name string, i uint,dest *time.Time) error{
+  p:=s.GetValue(name,i)                 // Get the value for the given name.
+	if i>=uint(len(p)){                   // Is the index out of range?
+	  return fmt.Errorf("index %d out of range", i)// Yes, panic.
+	}                                     // Done checking for out of range index.
+	q:=p                                  // Get the value at the index.
+	t,err:=time.Parse(time.RFC3339,q)     // Parse the value as a time.
+	if err!=nil{                          // Any error parsing the time?
+	  return fmt.Errorf("can't decode \"%s\" to time.Time: %v", q, err)
+	}                                     // Done checking for parse error.
+	sec,nsec:=t.UnixNano()/1e9,t.UnixNano()%1e9 // Get seconds and nanoseconds.
+	*dest=time.Unix(sec,nsec).In(t.Location())        
+	return nil                            // Return nil if we got here. 
+}
+
+// -------------------------- Signed Integers ------------------------------- //
+func (s *Section)	GetValueInt(name string, dest *int) error{
+  p:=s.GetValue(name,0)                 
+	if len(p)==0{                         
+	  return fmt.Errorf("can't decode empty \"value\" to int")
+	}                                     
+	return s.scanValue(p,"%d",dest)     
+}
+func (s *Section)	GetValueIntByIndex(name string,i uint,dest *int) error{
+  if len(name)==0{
+	  return fmt.Errorf("name cannot be empty")
+	} 
+	return s.scanValueByIndex(name,int(i),"%d",dest) 
+}
+func (s *Section)	GetValueInt8(name string, dest *int8) error{
+	p:=s.GetValue(name,0)                 
+	if len(p)==0{                         
+	  return fmt.Errorf("can't decode empty \"value\" to int8")
+	}                                     
+	return s.scanValue(p,"%d",dest) 
+}
+func (s *Section)	GetValueInt8ByIndex(name string,i uint,dest *int8) error{
+  if len(name)==0{
+	  return fmt.Errorf("name cannot be empty")
+	}                                     
+	return s.scanValueByIndex(name,int(i),"%d",dest) 
+}
+func (s *Section)	GetValueInt16(name string, dest *int16) error{
+  p:=s.GetValue(name,0)                 
+	if len(p)==0{                         
+	  return fmt.Errorf("can't decode empty \"value\" to int16")
+	}                                     
+	return s.scanValue(p,"%d",dest) 
+}
+func (s *Section)	GetValueInt16ByIndex(name string,i uint,dest *int16) error{
+  if len(name)==0{
+	  return fmt.Errorf("name cannot be empty")
+	}                                  
+	return s.scanValueByIndex(name,int(i),"%d",dest) 
+}
+func (s *Section)	GetValueInt32(name string, dest *int32) error{
+  p:=s.GetValue(name,0)                 
+	if len(p)==0{                         
+	  return fmt.Errorf("can't decode empty \"value\" to int32")
+	}                                     
+	return s.scanValue(p,"%d",dest) 
+}
+func (s *Section)	GetValueInt32ByIndex(name string,i uint,dest *int32) error{
+  if len(name)==0{
+	  return fmt.Errorf("name cannot be empty")
+	}                                
+	return s.scanValueByIndex(name,int(i),"%d",dest) 
+}
+func (s *Section)	GetValueInt64(name string, dest *int64) error{
+  p:=s.GetValue(name,0)                 
+	if len(p)==0{                         
+	  return fmt.Errorf("can't decode empty \"value\" to int64")
+	}                                     
+	return s.scanValue(p,"%d",dest) 
+}
+func (s *Section)	GetValueInt64ByIndex(name string,i uint,dest *int64) error{
+  if len(name)==0{
+	  return fmt.Errorf("name cannot be empty")
+	}                                 
+	return s.scanValueByIndex(name,int(i),"%d",dest) 
+}
+
+// ------------------- Unicode, binary and hex values ----------------------- //
+func (s *Section) GetValueRune(name string, dest *rune) error{
+  p:=s.GetValue(name,0)                 
+	if len(p)==0{                         
+	  return fmt.Errorf("can't decode empty \"value\" to rune")
+	}                                     
+	return s.scanValue(p,"%c",dest) 
+}
+func (s *Section)	GetValueRuneByIndex(name string,i uint,dest *rune) error{
+  if len(name)==0{
+	  return fmt.Errorf("name cannot be empty")
+	}                                    
+	return s.scanValueByIndex(name,int(i),"%c",dest) 
+}
+func (s *Section)	GetValueBinary(name string, dest *string) error{
+  p:=s.GetValue(name,0)                 
+	if len(p)==0{                         
+	  return fmt.Errorf("can't decode empty \"value\" to binary string")
+	}                                     
+	return s.scanValue(p,"%b",dest) 
+}
+func (s *Section)	GetValueHex(name string, dest *string) error{
+  p:=s.GetValue(name,0)                 
+	if len(p)==0{                         
+	  return fmt.Errorf("can't decode empty \"value\" to hex string")
+	}                                     
+	return s.scanValue(p,"%x",dest) 
+}
+func (s *Section)	GetValueOctal(name string, dest *string) error{
+  p:=s.GetValue(name,0)                 
+	if len(p)==0{                         
+	  return fmt.Errorf("can't decode empty \"value\" to octal string")
+	}                                     
+	return s.scanValue(p,"%o",dest) 
+}
+
+// ----------------------- Unsigned integers -------------------------------- //
+func (s *Section)	  GetValueUint(name string, dest *uint) error{
+  p:=s.GetValue(name,0)                 
+	if len(p)==0{                         
+	  return fmt.Errorf("can't decode empty \"value\" to uint")
+	}                                     
+	return s.scanValue(p,"%d",dest) 
+}
+func (s *Section)	GetValueUintByIndex(name string,i uint,dest *uint) error{
+  if len(name)==0{
+	  return fmt.Errorf("name cannot be empty")
+	}                                     
+	return s.scanValueByIndex(name,int(i),"%d",dest) 
+}
+func (s *Section)	GetValueUint8(name string, dest *uint8) error{
+  p:=s.GetValue(name,0)                 
+	if len(p)==0{                         
+	  return fmt.Errorf("can't decode empty \"value\" to uint8")
+	}                                     
+	return s.scanValue(p,"%d",dest) 
+}
+func (s *Section)	GetValueUint8ByIndex(name string,i uint,dest *uint8) error{
+  if len(name)==0{
+	  return fmt.Errorf("name cannot be empty")
+	}                                    
+	return s.scanValueByIndex(name,int(i),"%d",dest) 
+}
+func (s *Section)	GetValueUint16(name string, dest *uint16) error{
+  p:=s.GetValue(name,0)                 
+	if len(p)==0{                         
+	  return fmt.Errorf("can't decode empty \"value\" to uint16")
+	}                                     
+	return s.scanValue(p,"%d",dest) 
+}
+func (s *Section)	GetValueUint16ByIndex(name string,i uint, dest *uint16) error{
+  if len(name)==0{
+	  return fmt.Errorf("name cannot be empty")
+	}                                     
+	return s.scanValueByIndex(name,int(i),"%d",dest) 
+}
+func (s *Section)	GetValueUint32(name string, dest *uint32) error{
+  p:=s.GetValue(name,0)                 
+	if len(p)==0{                         
+	  return fmt.Errorf("can't decode empty \"value\" to uint32")
+	}                                     
+	return s.scanValue(p,"%d",dest) 
+}
+func (s *Section)	GetValueUint32ByIndex(name string,i uint,dest *uint32) error{
+  if len(name)==0{
+	  return fmt.Errorf("name cannot be empty")
+	}                                 
+	return s.scanValueByIndex(name,int(i),"%d",dest) 
+}
+func (s *Section)	GetValueUint64(name string, dest *uint64) error{
+  p:=s.GetValue(name,0)                 
+	if len(p)==0{                         
+	  return fmt.Errorf("can't decode empty \"value\" to uint64")
+	}                                     
+	return s.scanValue(p,"%d",dest) 
+}
+func (s *Section)	GetValueUint64ByIndex(name string,i uint,dest *uint64) error{
+  if len(name)==0{
+	  return fmt.Errorf("name cannot be empty")
+	}                                    
+	return s.scanValueByIndex(name,int(i),"%d",dest) 
+}
+
+// ------------------------- Floating point values -------------------------- //
+func (s *Section)	GetValueFloat32(name string, dest *float32) error{
+  p:=s.GetValue(name,0)                 
+	if len(p)==0{                         
+	  return fmt.Errorf("can't decode empty \"value\" to float32")
+	}                                     
+	return s.scanValue(p,"%f",dest)     
+}
+func (s *Section)	GetValueFloat32ByIndex(name string,i uint,dest *float32) error{
+  if len(name)==0{
+	  return fmt.Errorf("name cannot be empty")
+	}                                  
+	return s.scanValueByIndex(name,int(i),"%f",dest) 
+}
+func (s *Section)	GetValueFloat64(name string,dest *float64) error{
+  p:=s.GetValue(name,0)                 
+	if len(p)==0{                         
+	  return fmt.Errorf("can't decode empty \"value\" to float64")
+	}                                     
+	return s.scanValue(p,"%f",dest)     
+}
+func (s *Section)	GetValueFloat64ByIndex(name string,i uint,dest *float64) error{
+  if len(name)==0{
+	  return fmt.Errorf("name cannot be empty")
+	} 
+	return s.scanValueByIndex(name,int(i),"%f",dest)
+}
+
+// Floating point values with precision
+func (s *Section)	GetValuePrecisionFloat32(name,precision string,dest *float32) error{
+  p:=s.GetValue(name,0)
+	if len(p)==0{
+	  return fmt.Errorf("can't decode empty \"value\" to float32 with precision %s", precision)
+	}
+	return s.scanValue(p,fmt.Sprintf("%%.%sf", precision),dest)
+}
+func (s *Section)	GetValuePrecisionFloat32ByIndex(name string,i uint,precision string,dest *float32) error{
+  if len(name)==0{
+	  return fmt.Errorf("name cannot be empty")
+	} 
+	return s.scanValueByIndex(name,int(i),fmt.Sprintf("%%.%sf", precision),dest)
+}
+func (s *Section)	GetValuePrecisionFloat64(name string,value,precision string,dest *float64) error{
+  p:=s.GetValue(name,0)
+	if len(p)==0{
+	  return fmt.Errorf("can't decode empty \"value\" to float64 with precision %s", precision)
+	}
+	return s.scanValue(p,fmt.Sprintf("%%.%sf", precision),dest)
+}
+func (s *Section)	GetValuePrecisionFloat64ByIndex(name string,i uint,precision string,dest *float64) error{
+  if len(name)==0{
+	  return fmt.Errorf("name cannot be empty")
+	} 
+	return s.scanValueByIndex(name,int(i),fmt.Sprintf("%%.%sf", precision),dest)
+}
+
+// --------------------------- Complex numbers ------------------------------ //
+func (s *Section)	GetValueComplex64(name string,dest *complex64) error{
+  p:=s.GetValue(name,0)                 
+	if len(p)==0{                         
+	  return fmt.Errorf("can't decode empty \"value\" to complex64")
+	}                                     
+	return s.scanValue(p,"%v",dest)     
+}
+func (s *Section)	GetValueComplex64ByIndex(name string,i uint,dest *complex64) error{
+  if len(name)==0{
+	  return fmt.Errorf("name cannot be empty")
+	}                                   
+	return s.scanValueByIndex(name,int(i),"%v",dest) 
+}
+func (s *Section)	GetValueComplex128(name string,dest *complex128) error{
+  p:=s.GetValue(name,0)                 
+	if len(p)==0{                         
+	  return fmt.Errorf("can't decode empty \"value\" to complex128")
+	}                                     
+	return s.scanValue(p,"%v",dest)     
+}
+func (s *Section)	GetValueComplex128ByIndex(name string,i uint,dest *complex128) error{
+  if len(name)==0{
+	  return fmt.Errorf("name cannot be empty")
+	}                                    
+	return s.scanValueByIndex(name,int(i),"%v",dest) 
+}
+
+// --------------------------- Scientific notation -------------------------- //
+func (s *Section)	GetValueSI(name string,dest *string) error{
+  p:=s.GetValue(name,0)
+	if len(p)==0{
+	  return fmt.Errorf("can't decode empty \"value\" to scientific notation")
+	}
+	return s.scanValue(p,"%e",dest)
+}
+// ----------------------------- // GetValueBool // ------------------------- //
+//  Get the value of a bool parameter. If values are given for true and       //
+// false, then the result must match one or the other. If you give either a   //
+// true or false value, but not the other, then the result will always be     //
+// false. If tval and fval are the same, then the result will always be true. //
+//  If the value does not match either of the tval and fval values, the       //
+// result will not be set and the method will return false.                   //
+// -------------------------------------------------------------------------- //
+func (s *Section) GetValueBool(name string,i uint,tval string, fval string) (result bool, err error){
+  
+	p:=s.GetValue(name,i)                 // Get the parameter value.
+	if p!=""{                             // Did we get a value?
+	  if tval==""&&fval==""{              // No values given?
+		  if isTrue(p){                     // Is it "true"?
+			  result=true                     // Yes, set result to true.
+			}else if isFalse(p){              // Is it "false"?
+			  result=false                    // Yes, set result to false.
+			} else{                           // Else we dont know what it is.
+			  result=false                    // So make it false.
+				err=fmt.Errorf("value %s is not a boolean", p)// Store error.
+			}                                 // Done checking if could decode p.
+		}else if tval!=""&&fval!=""{        // Caller gave possible values?
+		  if strings.Contains(tval,p){      // Is it a true value?
+			  result=true                     // Yes set result to true.
+			}else if strings.Contains(fval,p){// Is it a false value?
+			  result=false                    // Yes set result to false.
+			} else{                           // Otherwise we cant decode it.
+			  result=false                    // Set result to false.
+				err=fmt.Errorf("value %s is not a boolean", p)// Store error.
+			}                                 // Done checking if can decode p.
+		}                                   // Done checking if caller gave values.
+	}                                     // Done checking for value.
+  return result,err                     // Return result and error if any.
+}                                       // ----------- GetValueBool --------- //
 // ------------------------------ // Print // ------------------------------- //
 // Write this Section object to a stream.                                     //
 // -------------------------------------------------------------------------- //
@@ -863,7 +1633,39 @@ func (s *Section) Print(w io.Writer) (int64,error){
 // in the configuration file. The value is converted to the type of the
 // destination variable using the format string.
 // -------------------------------------------------------------------------- //
-func (s *Section) ScanValue(name string,i int, format string, dest any) error{
+func (s *Section) scanValue(value, format string, dest any) error{
+  if len(value)==0{                     // Within range?
+	return fmt.Errorf("The value of the parameter %s is %v",s.current.name,s.current.value)
+  }                                     // Done checking for out of range.
+  var verb byte                         // The format verb.
+  for j:=1;j<len(format);j++{           // For each character in fmt string...
+	  c:=format[j]                        // Get the j'th characer.
+		// -------------------------------- //
+		// We need to check if 'c' is one of the characters that can legally
+		// appear in the *flags, width, precision or modifier* part of a fmt string.
+		// if it is, we will skip it and continue scanning the next character.
+		// -------------------------------- //
+		if strings.ContainsRune("#0- +. '0123456789*",rune(c)){ continue }
+		// -------------------------------- //
+		// Otherwise we have reached the first character that is not a flag, digit,
+		// dot or star, so by definition this is the format verb.
+		// -------------------------------- //
+		verb=c                              // The format verb.
+		break                               // We found the verb so break from loop.
+	}                                     // Done iterating through the format string.
+  if verb!=0&&!verbComaptible(verb,reflect.TypeOf(dest).Elem().Kind()){
+	  return fmt.Errorf("format %s is not compatible with type %s", format, reflect.TypeOf(dest).Elem().Kind())
+	}                                     // Done checking for format compatibility.
+  val:=reflect.ValueOf(dest).Kind()     // Get the type of the dest variable.
+	if dest==nil||val!=reflect.Ptr{       // Is dest nil or not a pointer?
+	return errors.New("destination must be a non-nil pointer")// Yes, return an error.
+  }                                     // Done checking for nil or pointer.
+  //raw:=p.GetValue(uint(i))                              
+	// Scan the value into the destination variable
+  _,err:=fmt.Sscanf(string(value),format,dest)
+	return err                            // Return error if any.  
+}
+func (s *Section) scanValueByIndex(name string,i int, format string, dest any) error{
   p:=s.FindParameter(name,true)         // Find the parameter in this section.
 	if p==nil{                            // Did we find the parameter?
 	  return fmt.Errorf("parameter %s not found in section %s", name, s.name)// No, return error.
@@ -938,40 +1740,7 @@ func (s *Section) SetValueInFormat(name string,i int,format string,src any) erro
 	p.n=uint(len(p.values))               // We now have this many values.
 	return nil														// We are good if we got here.
 }                                       // --------- SetValueInFormat ------- //
-// ----------------------------- // GetValueBool // ------------------------- //
-//  Get the value of a bool parameter. If values are given for true and       //
-// false, then the result must match one or the other. If you give either a   //
-// true or false value, but not the other, then the result will always be     //
-// false. If tval and fval are the same, then the result will always be true. //
-//  If the value does not match either of the tval and fval values, the       //
-// result will not be set and the method will return false.                   //
-// -------------------------------------------------------------------------- //
-func (s *Section) GetValueBool(name string,i uint,tval string, fval string) (result bool, err error){
-  
-	p:=s.GetValue(name,i)                 // Get the parameter value.
-	if p!=""{                             // Did we get a value?
-	  if tval==""&&fval==""{              // No values given?
-		  if isTrue(p){                     // Is it "true"?
-			  result=true                     // Yes, set result to true.
-			}else if isFalse(p){              // Is it "false"?
-			  result=false                    // Yes, set result to false.
-			} else{                           // Else we dont know what it is.
-			  result=false                    // So make it false.
-				err=fmt.Errorf("value %s is not a boolean", p)// Store error.
-			}                                 // Done checking if could decode p.
-		}else if tval!=""&&fval!=""{        // Caller gave possible values?
-		  if strings.Contains(tval,p){      // Is it a true value?
-			  result=true                     // Yes set result to true.
-			}else if strings.Contains(fval,p){// Is it a false value?
-			  result=false                    // Yes set result to false.
-			} else{                           // Otherwise we cant decode it.
-			  result=false                    // Set result to false.
-				err=fmt.Errorf("value %s is not a boolean", p)// Store error.
-			}                                 // Done checking if can decode p.
-		}                                   // Done checking if caller gave values.
-	}                                     // Done checking for value.
-  return result,err                     // Return result and error if any.
-}                                       // ----------- GetValueBool --------- //
+
 func (s *Section) MakeShallowCopyOf(src *Section){
   s.parentNames=src.parentNames         // The names of the parents if any.
 	s.parents=src.parents                 // Array of parent sections if any.
@@ -1700,7 +2469,7 @@ func (cfg *Configuration) GetNParameters(section string) uint{
 // in the configuration file. The value is converted to the type of the
 // destination variable using the format string.
 // -------------------------------------------------------------------------- //
-func (cfg *Configuration) ScanValue(name string,i int, format string, dest any) error{
+func (cfg *Configuration) scanValue(name string,i int, format string, dest any) error{
   p:=cfg.current.FindParameter(name,true)// Find the parameter in this section.
 	if p==nil{                            // Did we find the parameter?
 	  return fmt.Errorf("parameter %s not found in section %s", name, cfg.current.name)// No, return error.
@@ -1797,3 +2566,617 @@ func (cfg *Configuration) SetArrayValueInFormat(name string,idx uint,val any,for
 	}                                     // Done checking for current section.
   return fmt.Errorf("no current section selected") // No current section, return error.
 }                                       // ----- SetArrayValueInFormat ------ //
+
+// ---------------- Byte values (character values) -------------------------- //
+func (cfg *Configuration) GetValueByte(name string, dest *byte) error{
+  p:=cfg.GetValue(name)
+	if len(p)==0{
+	  return fmt.Errorf("parameter %s not found", name) 
+	}
+	return cfg.scanValue(name,0,"%c",dest)
+}
+func (cfg *Configuration)	SetValueByte(name string, value byte) error{
+  if cfg.current!=nil{                  
+	  return cfg.current.SetValue(name,string(value),0)
+	}                                     
+	return fmt.Errorf("no current section selected")
+}
+func (cfg *Configuration)	GetValueByteByIndex(name string,i uint,dest *byte) error{
+  p:=cfg.GetValueByIndex(name,i)
+	if len(p)==0{
+	  return fmt.Errorf("parameter %s not found", name) 
+	}
+	return cfg.scanValue(name,int(i),"%c",dest)
+}
+func (cfg *Configuration)	SetValueByteByIndex(name string, i uint, value byte) error{
+  if cfg.current!=nil{                  
+	  return cfg.current.SetValuePtrOnIndex(name,string(value),i,0)
+	}                                     
+	return fmt.Errorf("no current section selected")
+}
+
+ // ---------------------- Times and durations ------------------------------ //
+func (cfg *Configuration)	GetValueTimespec(name string, dest *unix.Timespec) error{
+  p:=cfg.GetValue(name)                 
+  if len(p)==0{                         
+	  return fmt.Errorf("can't decode empty \"value\" to unix.Timespec")
+	}                                     
+	t,err:=time.Parse(time.RFC3339,p) 
+	if err!=nil{                          
+	  return fmt.Errorf("can't decode \"%s\" to unix.Timespec: %v", p, err)
+	}                                     
+	unix.NsecToTimespec(t.UnixNano()) 	  
+	*dest=unix.NsecToTimespec(t.UnixNano()) 
+	return nil                            
+}
+func (cfg *Configuration)	GetValueTimespecByIndex(name string,i uint,dest *unix.Timespec) error{
+  p:=cfg.GetValueByIndex(name,i)        
+	if len(p)==0{                         
+	  return fmt.Errorf("parameter %s not found", name) 
+	}                                     
+	t,err:=time.Parse(time.RFC3339,p) 
+	if err!=nil{                          
+	  return fmt.Errorf("can't decode \"%s\" to unix.Timespec: %v", p, err)
+	}                                     
+	unix.NsecToTimespec(t.UnixNano()) 	  
+	*dest=unix.NsecToTimespec(t.UnixNano()) 
+	return nil                            
+}
+func (cfg *Configuration)	GetValueDuration(name string, dest *time.Duration) error{
+  p:=cfg.GetValue(name)                 
+	if len(p)==0{                         
+	  return fmt.Errorf("parameter %s not found", name) 
+	}                                     
+	d,err:=time.ParseDuration(p)          
+	if err!=nil{                          
+	  return fmt.Errorf("can't decode \"%s\" to time.Duration: %v", p, err)
+	}                                     
+	*dest=d                               
+	return nil                            
+}
+func (cfg *Configuration)	GetValueDurationByIndex(name string,i uint,dest *time.Duration) error{
+  p:=cfg.GetValueByIndex(name,i)        
+	if len(p)==0{                         
+	  return fmt.Errorf("parameter %s not found", name) 
+	}                                     
+	d,err:=time.ParseDuration(p)          
+	if err!=nil{                          
+	  return fmt.Errorf("can't decode \"%s\" to time.Duration: %v", p, err)
+	}                                     
+	*dest=d                               
+	return nil                            
+}
+
+// Time since epoch
+func (cfg *Configuration)	GetValueTime(name string, dest *time.Time) error{
+  p:=cfg.GetValue(name)                 
+	if len(p)==0{                         
+	  return fmt.Errorf("parameter %s not found", name) 
+	}                                     
+	t,err:=time.Parse(time.RFC3339,p) 
+	if err!=nil{                          
+	  return fmt.Errorf("can't decode \"%s\" to time.Time: %v", p, err)
+	}                                     
+	*dest=t                               
+	return nil                            
+}
+func (cfg *Configuration)	GetValueTimeByIndex(name string, i uint,dest *time.Time) error{
+  p:=cfg.GetValueByIndex(name,i)        
+	if len(p)==0{                         
+	  return fmt.Errorf("parameter %s not found", name) 
+	}                                     
+	t,err:=time.Parse(time.RFC3339,p) 
+	if err!=nil{                          
+	  return fmt.Errorf("can't decode \"%s\" to time.Time: %v", p, err)
+	}                                     
+	*dest=t                               
+	return nil                            
+}
+
+// --------------------------- Signed Integers ------------------------------ //
+func (cfg *Configuration)	GetValueInt(name string, dest *int) error{
+  p:=cfg.GetValue(name)                 
+	if len(p)==0{                         
+	  return fmt.Errorf("parameter %s not found", name) 
+	}                                     
+	return cfg.scanValue(name,0,"%d",dest)
+}
+func (cfg *Configuration)	SetValueInt(name string, value int) error{
+  if cfg.current!=nil{                  
+	  return cfg.current.SetValue(name,strconv.Itoa(value),0)
+	}                                     
+	return fmt.Errorf("no current section selected")
+}
+func (cfg *Configuration)	GetValueIntByIndex(name string,i uint,dest *int) error{
+  p:=cfg.GetValueByIndex(name,i)        
+	if len(p)==0{                         
+	  return fmt.Errorf("parameter %s not found", name) 
+	}                                     
+	return cfg.scanValue(name,int(i),"%d",dest)
+}
+func (cfg *Configuration)	SetValueIntByIndex(name string, i uint, value int) error{
+  if cfg.current!=nil{                  
+	  return cfg.current.SetValuePtrOnIndex(name,strconv.Itoa(value),i,0)
+	}                                     
+	return fmt.Errorf("no current section selected")
+}
+func (cfg *Configuration)	GetValueInt8(name string, dest *int8) error{
+  p:=cfg.GetValue(name)                 
+	if len(p)==0{                         
+	  return fmt.Errorf("parameter %s not found", name) 
+	}                                     
+	return cfg.scanValue(name,0,"%d",dest)
+}
+func (cfg *Configuration)	SetValueInt8(name string, value int8) error{
+  if cfg.current!=nil{                  
+	  return cfg.current.SetValue(name,strconv.Itoa(int(value)),0)
+	}                                     
+	return fmt.Errorf("no current section selected")
+}
+func (cfg *Configuration)	GetValueInt8ByIndex(name string,i uint,dest *int8) error{
+  p:=cfg.GetValueByIndex(name,i)        
+	if len(p)==0{                         
+	  return fmt.Errorf("parameter %s not found", name) 
+	}                                     
+	return cfg.scanValue(name,int(i),"%d",dest)
+}
+func (cfg *Configuration)	SetValueInt8ByIndex(name string, i uint, value int8) error{
+  if cfg.current!=nil{                  
+	  return cfg.current.SetValuePtrOnIndex(name,strconv.Itoa(int(value)),i,0)
+	}                                     
+	return fmt.Errorf("no current section selected")
+}
+func (cfg *Configuration)	GetValueInt16(name string, dest *int16) error{
+  p:=cfg.GetValue(name)                 
+	if len(p)==0{                         
+	  return fmt.Errorf("parameter %s not found", name) 
+	}                                     
+	return cfg.scanValue(name,0,"%d",dest)
+}
+func (cfg *Configuration)	SetValueInt16(name string, value int16) error{
+  if cfg.current!=nil{                  
+	  return cfg.current.SetValue(name,strconv.Itoa(int(value)),0)
+	}                                     
+	return fmt.Errorf("no current section selected")
+}
+func (cfg *Configuration)	GetValueInt16ByIndex(name string,i uint,dest *int16) error{
+  p:=cfg.GetValueByIndex(name,i)        
+	if len(p)==0{                         
+	  return fmt.Errorf("parameter %s not found", name) 
+	}                                     
+	return cfg.scanValue(name,int(i),"%d",dest)
+}
+func (cfg *Configuration)	SetValueInt16ByIndex(name string, i uint, value int16) error{
+  if cfg.current!=nil{                  
+	  return cfg.current.SetValuePtrOnIndex(name,strconv.Itoa(int(value)),i,0)
+	}
+	return fmt.Errorf("no current section selected")
+}
+func (cfg *Configuration)	GetValueInt32(name string, dest *int32) error{
+  p:=cfg.GetValue(name)
+	if len(p)==0{
+	  return fmt.Errorf("parameter %s not found", name) 
+	}
+	return cfg.scanValue(name,0,"%d",dest)
+}
+func (cfg *Configuration)	SetValueInt32(name string, value int32) error{
+  if cfg.current!=nil{
+	  return cfg.current.SetValue(name,strconv.Itoa(int(value)),0)
+	}
+	return fmt.Errorf("no current section selected")
+}
+func (cfg *Configuration)	GetValueInt32ByIndex(name string,i uint,dest *int32) error{
+  p:=cfg.GetValueByIndex(name,i)
+	if len(p)==0{
+	  return fmt.Errorf("parameter %s not found", name) 
+	}
+	return cfg.scanValue(name,int(i),"%d",dest)
+}
+func (cfg *Configuration)	SetValueInt32ByIndex(name string, i uint, value int32) error{
+  if cfg.current!=nil{
+	  return cfg.current.SetValuePtrOnIndex(name,strconv.Itoa(int(value)),i,0)
+	}
+	return fmt.Errorf("no current section selected")
+}
+func (cfg *Configuration)	GetValueInt64(name string, dest *int64) error{
+  p:=cfg.GetValue(name)                 
+	if len(p)==0{                         
+	  return fmt.Errorf("parameter %s not found", name) 
+	}                                     
+	return cfg.scanValue(name,0,"%d",dest)
+}
+func (cfg *Configuration)	SetValueInt64(name string, value int64) error{
+  if cfg.current!=nil{                  
+	  return cfg.current.SetValue(name,strconv.FormatInt(value,10),0)
+	}
+	return fmt.Errorf("no current section selected")
+}
+func (cfg *Configuration)	GetValueInt64ByIndex(name string,i uint,dest *int64) error{
+  p:=cfg.GetValueByIndex(name,i)        
+	if len(p)==0{                         
+	  return fmt.Errorf("parameter %s not found", name) 
+	}                                     
+	return cfg.scanValue(name,int(i),"%d",dest)
+}
+func (cfg *Configuration)	SetValueInt64ByIndex(name string, i uint, value int64) error{
+  if cfg.current!=nil{                  
+	  return cfg.current.SetValuePtrOnIndex(name,strconv.FormatInt(value,10),i,0)
+	}                                     
+	return fmt.Errorf("no current section selected")
+}
+
+// --------------------- Unicode, binary and hex values --------------------- //
+func (cfg *Configuration)	GetValueRune(name string, dest *rune) error{
+  p:=cfg.GetValue(name)                 
+	if len(p)==0{                         
+	  return fmt.Errorf("parameter %s not found", name) 
+	}                                     
+	return cfg.scanValue(name,0,"%c",dest)
+}
+func (cfg *Configuration)	SetValueRune(name string, value rune) error{
+  if cfg.current!=nil{                  
+	  return cfg.current.SetValue(name,string(value),0)
+	}                                     
+	return fmt.Errorf("no current section selected")
+}
+func (cfg *Configuration)	GetValueRuneByIndex(name string,i uint,dest *rune) error{
+  p:=cfg.GetValueByIndex(name,i)        
+	if len(p)==0{                         
+	  return fmt.Errorf("parameter %s not found", name) 
+	}                                     
+	return cfg.scanValue(name,int(i),"%c",dest)
+}
+func (cfg *Configuration)	SetValueRuneByIndex(name string, i uint, value rune) error{
+  if cfg.current!=nil{                  
+	  return cfg.current.SetValuePtrOnIndex(name,string(value),i,0)
+	}                                     
+	return fmt.Errorf("no current section selected")
+}
+func (cfg *Configuration)	GetValueBinary(name string, dest *string) error{
+  p:=cfg.GetValue(name)                 
+	if len(p)==0{                         
+	  return fmt.Errorf("parameter %s not found", name) 
+	}                                     
+	return cfg.scanValue(name,0,"%b",dest)
+}
+func (cfg *Configuration)	SetValueBinary(name string, value string) error{
+  if cfg.current!=nil{                  
+	  return cfg.current.SetValue(name,value,0)
+	}
+	return fmt.Errorf("no current section selected")
+}
+func (cfg *Configuration)	GetValueHex(name string, dest *string) error{
+  p:=cfg.GetValue(name)                 
+	if len(p)==0{                         
+	  return fmt.Errorf("parameter %s not found", name) 
+	}                                     
+	return cfg.scanValue(name,0,"%x",dest)
+}
+func (cfg *Configuration)	SetValueHex(name string, value string) error{
+  if cfg.current!=nil{                  
+	  return cfg.current.SetValue(name,value,0)
+	}                                     
+	return fmt.Errorf("no current section selected")
+}
+func (cfg *Configuration)	GetValueOctal(name string, dest *string) error{
+  p:=cfg.GetValue(name)                 
+	if len(p)==0{                         
+	  return fmt.Errorf("parameter %s not found", name) 
+	}                                     
+	return cfg.scanValue(name,0,"%o",dest)
+}
+func (cfg *Configuration)	SetValueOctal(name string, value string) error{
+  if cfg.current!=nil{                  
+	  return cfg.current.SetValue(name,value,0)
+	}                                     
+	return fmt.Errorf("no current section selected")
+}
+
+// ------------------------- Unsigned integers ------------------------------ //
+func (cfg *Configuration)  GetValueUint(name string, dest *uint) error{
+  p:=cfg.GetValue(name)                 
+	if len(p)==0{                         
+	  return fmt.Errorf("parameter %s not found", name) 
+	}                                     
+	return cfg.scanValue(name,0,"%u",dest)
+}
+func (cfg *Configuration)	SetValueUint(name string, value uint) error{
+  if cfg.current!=nil{                  
+	  return cfg.current.SetValue(name,strconv.FormatUint(uint64(value),10),0)
+	}                                     
+	return fmt.Errorf("no current section selected")
+}
+func (cfg *Configuration)	GetValueUintByIndex(name string,i uint,dest *uint) error{
+  p:=cfg.GetValueByIndex(name,i)        
+	if len(p)==0{                         
+	  return fmt.Errorf("parameter %s not found", name) 
+	}                                     
+	return cfg.scanValue(name,int(i),"%u",dest)
+}
+func (cfg *Configuration)	SetValueUintByIndex(name string, i uint, value uint) error{
+  if cfg.current!=nil{                  
+	  return cfg.current.SetValuePtrOnIndex(name,strconv.FormatUint(uint64(value),10),i,0)
+	}                                     
+	return fmt.Errorf("no current section selected")
+}
+func (cfg *Configuration)	GetValueUint8(name string, dest *uint8) error{
+  p:=cfg.GetValue(name)                 
+	if len(p)==0{                         
+	  return fmt.Errorf("parameter %s not found", name) 
+	}                                     
+	return cfg.scanValue(name,0,"%u",dest)
+}
+func (cfg *Configuration) SetValueUint8(name string, value uint8) error{
+  if cfg.current!=nil{                  
+	  return cfg.current.SetValue(name,strconv.FormatUint(uint64(value),10),0)
+	}
+	return fmt.Errorf("no current section selected")
+}
+func (cfg *Configuration)	GetValueUint8ByIndex(name string,i uint,dest *uint8) error{
+  p:=cfg.GetValueByIndex(name,i)        
+	if len(p)==0{                         
+	  return fmt.Errorf("parameter %s not found", name) 
+	}                                     
+	return cfg.scanValue(name,int(i),"%u",dest)
+}
+func (cfg *Configuration)	SetValueUint8ByIndex(name string, i uint, value uint8) error{
+  if cfg.current!=nil{                  
+	  return cfg.current.SetValuePtrOnIndex(name,strconv.FormatUint(uint64(value),10),i,0)
+	}                                     
+	return fmt.Errorf("no current section selected")
+}
+func (cfg *Configuration)	GetValueUint16(name string, dest *uint16) error{
+  p:=cfg.GetValue(name)                 
+	if len(p)==0{                         
+	  return fmt.Errorf("parameter %s not found", name) 
+	}                                     
+	return cfg.scanValue(name,0,"%u",dest)
+}
+func (cfg *Configuration)	SetValueUint16(name string, value uint16) error{
+  if cfg.current!=nil{                  
+	  return cfg.current.SetValue(name,strconv.FormatUint(uint64(value),10),0)
+	}                                     
+	return fmt.Errorf("no current section selected")
+}
+func (cfg *Configuration)	GetValueUint16ByIndex(name string,i uint, dest *uint16) error{
+  p:=cfg.GetValueByIndex(name,i)        
+	if len(p)==0{                         
+	  return fmt.Errorf("parameter %s not found", name) 
+	}                                     
+	return cfg.scanValue(name,int(i),"%u",dest)
+}
+func (cfg *Configuration)	SetValueUint16ByIndex(name string, i uint, value uint16) error{
+  if cfg.current!=nil{                  
+	  return cfg.current.SetValuePtrOnIndex(name,strconv.FormatUint(uint64(value),10),i,0)
+	}                                     
+	return fmt.Errorf("no current section selected")
+}
+func (cfg *Configuration)	GetValueUint32(name string, dest *uint32) error{
+  p:=cfg.GetValue(name)                 
+	if len(p)==0{                         
+	  return fmt.Errorf("parameter %s not found", name) 
+	}                                     
+	return cfg.scanValue(name,0,"%u",dest)
+}
+func (cfg *Configuration)	SetValueUint32(name string, value uint32) error{
+  if cfg.current!=nil{                  
+	  return cfg.current.SetValue(name,strconv.FormatUint(uint64(value),10),0)
+	}
+	return fmt.Errorf("no current section selected")
+}
+func (cfg *Configuration)	GetValueUint32ByIndex(name string,i uint,dest *uint32) error{
+  p:=cfg.GetValueByIndex(name,i)        
+	if len(p)==0{                         
+	  return fmt.Errorf("parameter %s not found", name) 
+	}                                     
+	return cfg.scanValue(name,int(i),"%u",dest)
+}
+func (cfg *Configuration)	SetValueUint32ByIndex(name string, i uint, value uint32) error{
+  if cfg.current!=nil{                  
+	  return cfg.current.SetValuePtrOnIndex(name,strconv.FormatUint(uint64(value),10),i,0)
+	}                                     
+	return fmt.Errorf("no current section selected")
+}
+func (cfg *Configuration)	GetValueUint64(name string, dest *uint64) error{
+  p:=cfg.GetValue(name)                 
+	if len(p)==0{                         
+	  return fmt.Errorf("parameter %s not found", name) 
+	}                                     
+	return cfg.scanValue(name,0,"%d",dest)
+}
+func (cfg *Configuration)	SetValueUint64(name string, value uint64) error{
+  if cfg.current!=nil{                  
+	  return cfg.current.SetValue(name,strconv.FormatUint(value,10),0)
+	}                                     
+	return fmt.Errorf("no current section selected")
+}
+func (cfg *Configuration)	GetValueUint64ByIndex(name string,i uint,dest *uint64) error{
+  p:=cfg.GetValueByIndex(name,i)        
+	if len(p)==0{                         
+	  return fmt.Errorf("parameter %s not found", name) 
+	}                                     
+	return cfg.scanValue(name,int(i),"%d",dest)
+}
+func (cfg *Configuration)	SetValueUint64ByIndex(name string, i uint, value uint64) error{
+  if cfg.current!=nil{                  
+	  return cfg.current.SetValuePtrOnIndex(name,strconv.FormatUint(value,10),i,0)
+	}
+	return fmt.Errorf("no current section selected")
+}
+
+// ------------------------ Floating point values --------------------------- //
+func (cfg *Configuration)	GetValueFloat32(name string, dest *float32) error{
+  p:=cfg.GetValue(name)                 
+	if len(p)==0{                         
+	  return fmt.Errorf("parameter %s not found", name) 
+	}                                     
+	return cfg.scanValue(name,0,"%f",dest)
+}
+func (cfg *Configuration)	SetValueFloat32(name string, value float32) error{
+  if cfg.current!=nil{                  
+	  return cfg.current.SetValue(name,strconv.FormatFloat(float64(value),'f',-1,32),0)
+	}
+	return fmt.Errorf("no current section selected")
+}
+func (cfg *Configuration)	GetValueFloat32ByIndex(name string,i uint,dest *float32) error{
+  p:=cfg.GetValueByIndex(name,i)        
+	if len(p)==0{                         
+	  return fmt.Errorf("parameter %s not found", name) 
+	}                                     
+	return cfg.scanValue(name,int(i),"%f",dest)
+}
+func (cfg *Configuration)	SetValueFloat32ByIndex(name string, i uint, value float32) error{
+  if cfg.current!=nil{                  
+	  return cfg.current.SetValuePtrOnIndex(name,strconv.FormatFloat(float64(value),'f',-1,32),i,0)
+	}                                     
+	return fmt.Errorf("no current section selected")
+}
+func (cfg *Configuration)	GetValueFloat64(name string,dest *float64) error{
+	p:=cfg.GetValue(name)                 
+	if len(p)==0{                         
+	  return fmt.Errorf("parameter %s not found", name) 
+	}                                     
+	return cfg.scanValue(name,0,"%f",dest)
+}
+func (cfg *Configuration)	SetValueFloat64(name string, value float64) error{
+	if cfg.current!=nil{                  
+	  return cfg.current.SetValue(name,strconv.FormatFloat(value,'f',-1,64),0)
+	}                                     
+	return fmt.Errorf("no current section selected")
+}
+func (cfg *Configuration)	GetValueFloat64ByIndex(name string,i uint,dest *float64) error{
+  p:=cfg.GetValueByIndex(name,i)
+	if len(p)==0{
+	  return fmt.Errorf("parameter %s not found", name) 
+	}
+	return cfg.scanValue(name,int(i),"%f",dest)
+}
+func (cfg *Configuration)	SetValueFloat64ByIndex(name string, i uint, value float64) error{
+  if cfg.current!=nil{
+	  return cfg.current.SetValuePtrOnIndex(name,strconv.FormatFloat(value,'f',-1,64),i,0)
+	}
+	return fmt.Errorf("no current section selected")
+}
+
+// Floating point values with precision
+func (cfg *Configuration)	GetValuePrecisionFloat32(name,precision string,dest *float32) error{
+	p:=cfg.GetValue(name)
+	if len(p)==0{
+	  return fmt.Errorf("parameter %s not found", name)
+	}
+	return cfg.scanValue(name,0,"%"+precision+"f",dest)
+}
+func (cfg *Configuration)	SetValuePrecisionFloat32(name,precision string,value float32) error{
+	if cfg.current!=nil{
+	  return cfg.current.SetValue(name,strconv.FormatFloat(float64(value),'f',-1,32),0)
+	}
+	return fmt.Errorf("no current section selected")
+}
+func (cfg *Configuration)	GetValuePrecisionFloat32ByIndex(name string,i uint,precision string,dest *float32) error{
+	p:=cfg.GetValueByIndex(name,i)
+	if len(p)==0{
+	  return fmt.Errorf("parameter %s not found", name)
+	}
+	return cfg.scanValue(name,int(i),"%"+precision+"f",dest)
+}
+func (cfg *Configuration)	SetValuePrecisionFloat32ByIndex(name string, i uint, precision string, value float32) error{
+	if cfg.current!=nil{
+	  return cfg.current.SetValuePtrOnIndex(name,strconv.FormatFloat(float64(value),'f',-1,32),i,0)
+	}
+	return fmt.Errorf("no current section selected")
+}
+func (cfg *Configuration)	GetValuePrecisionFloat64(name string,value,precision string,dest *float64) error{
+	p:=cfg.GetValue(name)
+	if len(p)==0{
+	  return fmt.Errorf("parameter %s not found", name)
+	}
+	return cfg.scanValue(name,0,"%"+precision+"f",dest)
+}
+func (cfg *Configuration)	SetValuePrecisionFloat64(name string,precision string,value float64) error{
+	if cfg.current!=nil{
+	  return cfg.current.SetValue(name,strconv.FormatFloat(value,'f',-1,64),0)
+	}
+	return fmt.Errorf("no current section selected")
+}
+func (cfg *Configuration)	GetValuePrecisionFloat64ByIndex(name string,i uint,precision string,dest *float64) error{
+	p:=cfg.GetValueByIndex(name,i)
+	if len(p)==0{
+	  return fmt.Errorf("parameter %s not found", name)
+	}
+	return cfg.scanValue(name,int(i),"%"+precision+"f",dest)
+}
+func (cfg *Configuration)	SetValuePrecisionFloat64ByIndex(name string, i uint, precision string, value float64) error{
+	if cfg.current!=nil{
+	  return cfg.current.SetValuePtrOnIndex(name,strconv.FormatFloat(value,'f',-1,64),i,0)
+	}
+	return fmt.Errorf("no current section selected")
+}
+
+// ----------------------------- Complex numbers ---------------------------- //
+func (cfg *Configuration)	GetValueComplex64(name string,dest *complex64) error{
+	p:=cfg.GetValue(name)                 
+	if len(p)==0{                         
+	  return fmt.Errorf("parameter %s not found", name) 
+	}                                     
+	return cfg.scanValue(name,0,"%v",dest)
+}
+func (cfg *Configuration)	SetValueComplex64(name string, value complex64) error{
+	if cfg.current!=nil{                  
+	  return cfg.current.SetValue(name,strconv.FormatComplex(complex128(value),'v',-1,64),0)
+	}                                     
+	return fmt.Errorf("no current section selected")
+}
+func (cfg *Configuration)	GetValueComplex64ByIndex(name string,i uint,dest *complex64) error{
+	p:=cfg.GetValueByIndex(name,i)        
+	if len(p)==0{                         
+	  return fmt.Errorf("parameter %s not found", name) 
+	}                                     
+	return cfg.scanValue(name,int(i),"%v",dest)
+}
+func (cfg *Configuration)	SetValueComplex64ByIndex(name string, i uint, value complex64) error{
+	if cfg.current!=nil{                  
+	  return cfg.current.SetValuePtrOnIndex(name,strconv.FormatComplex(complex128(value),'v',-1,64),i,0)
+	}                                     
+	return fmt.Errorf("no current section selected")
+}
+func (cfg *Configuration)	GetValueComplex128(name string,dest *complex128) error{
+	p:=cfg.GetValue(name)                 
+	if len(p)==0{                         
+	  return fmt.Errorf("parameter %s not found", name) 
+	}                                     
+	return cfg.scanValue(name,0,"%v",dest)
+}
+func (cfg *Configuration)	SetValueComplex128(name string, value complex128) error{
+	if cfg.current!=nil{                  
+	  return cfg.current.SetValue(name,strconv.FormatComplex(value,'v',-1,64),0)
+	}                                     
+	return fmt.Errorf("no current section selected")
+}
+func (cfg *Configuration)	GetValueComplex128ByIndex(name string,i uint,dest *complex128) error{
+	p:=cfg.GetValueByIndex(name,i)        
+	if len(p)==0{                         
+	  return fmt.Errorf("parameter %s not found", name) 
+	}                                     
+	return cfg.scanValue(name,int(i),"%v",dest)
+}
+func (cfg *Configuration)	SetValueComplex128ByIndex(name string, i uint, value complex128) error{
+	if cfg.current!=nil{                  
+	  return cfg.current.SetValuePtrOnIndex(name,strconv.FormatComplex(value,'v',-1,64),i,0)
+	}
+	return fmt.Errorf("no current section selected")
+}
+
+	// Scientific notation
+func (cfg *Configuration)	GetValueSI(name string,dest *string) error{
+	p:=cfg.GetValue(name)                 
+	if len(p)==0{                         
+	  return fmt.Errorf("parameter %s not found", name) 
+	}                                     
+	return cfg.scanValue(name,0,"%s",dest)
+}
+func (cfg *Configuration)	SetValueSI(name string, value string) error{
+	if cfg.current!=nil{                  
+	  return cfg.current.SetValue(name,value,0)
+	}                                     
+	return fmt.Errorf("no current section selected")
+}
