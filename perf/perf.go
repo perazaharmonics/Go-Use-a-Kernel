@@ -4,14 +4,15 @@ import(
   "encoding/binary"
 	"fmt"
 	"os"
+  "syscall"
 
 	"golang.org/x/sys/unix"
 )
 // ------------------------------------ //
-// openCycles returns an *os.File whose Read() gives the current CPU-cycle count
-// for the calling thread (FD is CLOEXEC). User should call ReadUint64()
-// to read the cycle count before/after the critical section and subtract
-// the two values to get the cycle count for that section.
+// openCycles returns a Counter object that is used to read the CPU cycle count.
+// It uses the perf_event_open syscall to create a file descriptor that can be used
+// to read the CPU cycle count. The file descriptor is used to read the cycle count
+// using the ReadUint64 method of the Counter object.
 // ------------------------------------ //
 /*
 type PerfEventAttr struct {
@@ -43,7 +44,10 @@ type PerfEventAttr struct {
     Reserved_2 uint32
 }
 */
-func OpenCycles() (*os.File,error){
+type Counter struct{
+  fd int
+}
+func OpenCycles() (*Counter,error){
   attr:=unix.PerfEventAttr{
 	  Type:        unix.PERF_TYPE_HARDWARE,
 		Config:      unix.PERF_COUNT_HW_CPU_CYCLES,
@@ -60,17 +64,28 @@ func OpenCycles() (*os.File,error){
 	  return nil,fmt.Errorf("perf_event_open: %w",err)
 	}                                     // Done with error opening perf event.
 	// ---------------------------------- //
-	// We have a valid fd, so now we can return the file associated with it.
-	// ---------------------------------- //
-	return os.NewFile(uintptr(fd),"perf_cycle"),nil
+  // Reset + enable the perf event.
+  // ---------------------------------- //
+  if _,_,errno:=syscall.Syscall(syscall.SYS_IOCTL,uintptr(fd),
+    uintptr(unix.PERF_EVENT_IOC_RESET),0);errno!=0{
+      return nil,fmt.Errorf("ioctl(PERF_EVENT_IOC_RESET): %w",errno)
+  }
+  if _,_,errno:=syscall.Syscall(syscall.SYS_IOCTL,uintptr(fd),
+    uintptr(unix.PERF_EVENT_IOC_ENABLE),0);errno!=0{
+      return nil,fmt.Errorf("ioctl(PERF_EVENT_IOC_ENABLE): %w",errno)
+  }
+  return &Counter{fd},nil
 }                                       // ----------- openCycles ----------- //
 // ------------------------------------ //
 // ReadUint64 fetches the current current CPU-cycle count from the file
 // associated with the perf_event_open syscall.
 // It returns the cycle count as a uint64.
 // ------------------------------------ //
-func ReadUint64(f *os.File) (uint64,error){
+func (c *Counter) ReadUint64(f *os.File) (uint64,error){
   var buf [8]byte                       // Buffer to read the cycle count into.
-	_,err:=f.Read(buf[:])                 // Read cycle count from file into buf.
-	return binary.LittleEndian.Uint64(buf[:]),err // Return the cycle count as uint64.
+	if _,err:=unix.Read(c.fd,buf[:]);err!=nil{
+    return 0,fmt.Errorf("read perf event fd: %w",err)
+  }
+  return binary.LittleEndian.Uint64(buf[:]),nil // Return the cycle count as uint64.
 }                                       // ----------- ReadUint64 ----------- //
+func (c *Counter) Close() { unix.Close(c.fd) }
