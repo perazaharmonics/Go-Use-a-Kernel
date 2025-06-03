@@ -81,7 +81,7 @@ func OpenCycles() (*Counter,error){
 // associated with the perf_event_open syscall.
 // It returns the cycle count as a uint64.
 // ------------------------------------ //
-func (c *Counter) ReadUint64(f *os.File) (uint64,error){
+func (c *Counter) ReadUint64() (uint64,error){
   var buf [8]byte                       // Buffer to read the cycle count into.
 	if _,err:=unix.Read(c.fd,buf[:]);err!=nil{
     return 0,fmt.Errorf("read perf event fd: %w",err)
