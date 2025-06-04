@@ -26,6 +26,7 @@
 *  J.EP J. Enrique Peraza
 *=============================================================================*/
 
+
 package dispatcher
 import(
   "io"
@@ -92,9 +93,9 @@ func CopyPair(a,b *net.TCPConn, scfg *ServerConfig, add AddBytes) error{
 // ------------------------------------ //
 func lazyCopy(                          // ------------ lazyCopy ------------ //
 src,dst *net.TCPConn,                   // The src and dst TCP connections.
-bufsiz int,                           // The size of the buffer to use.
+bufsiz int,                             // The size of the buffer to use.
 add AddBytes) error{                    // Function to add bytes to the counter.
-  buffer:=make([]byte,bufsiz)           // Create a buffer of size bufsiz.
+  buffer:=make([]byte,4*bufsiz)         // Create a buffer of size 256KiB.
 	n,err:=io.CopyBuffer(dst,src,buffer)  // Copy the data from src to dst using the buffer.
 	add(uint64(n))
 	return err                            // Return the error if any.
@@ -120,8 +121,11 @@ add AddBytes) error{                    // Function to add bytes to the counter.
   // ---------------------------------- //
 	// Create a pipe to splice the data from src to dst.
 	// ---------------------------------- //
-	p,_:=pipe.NewPipe2(unix.O_CLOEXEC)    // Create a new pipe with CLOEXEC flag.
-	const smode=unix.SPLICE_F_MOVE|unix.SPLICE_F_MORE// Bit flags for splice.
+	p,err:=pipe.NewPipe2(unix.O_CLOEXEC|unix.O_NONBLOCK)    // Create a new pipe with CLOEXEC flag.
+	if err!=nil{ return err }             // Error creating pipe object?	
+	defer p.Close()                       // Close the pipe when done.
+	_,err=p.SetCapacity(4*bufsiz)         // Set the capacity of the pipe to 4*bufsiz.
+	const smode=unix.SPLICE_F_MOVE|unix.SPLICE_F_MORE|unix.SPLICE_F_GIFT
 	rfd:=p.GetReadEndFD()                 // The read end of the pipe.
 	wfd:=p.GetWriteEndFD()                // The write end of the pipe.
 	for{                                  // Unit we get EOF...
@@ -130,35 +134,35 @@ add AddBytes) error{                    // Function to add bytes to the counter.
 	// end of the pipe. Go's TCP socket is non-blocking so we will
 	// have to wait for the socket to be readable before we can splice
 	// ---------------------------------- //
-	  n,err:=unix.Splice(fd0,nil,wfd,nil,bufsiz,smode)
+	  n,rerr:=unix.Splice(fd0,nil,wfd,nil,bufsiz,smode)
     switch{                             // Switch according to the error.
-		  case err==syscall.EAGAIN:         // EAGAIN error?
+		  case rerr==syscall.EAGAIN:        // EAGAIN error?
 			  waitReadable(fd0)               // Wait for the source socket to be readable.
 		    continue                        // Yes, continue to splice.
-		  case err!=nil:                    // Error splicing from src to pipe?
+		  case rerr!=nil:                   // Error splicing from src to pipe?
 		    return err                      // Yes, return the error.
 			case n==0:                        // EOF?
 			  return nil                      // Yes source closed, return nil.
 		}                                   // Done acting according to error code.
-		add(uint64(n))                         // Add the number of bytes transferred.
 		// -------------------------------- //
 		// Now we splice from the read end of the pipe and write into the destination
 		// socket. We will do this until we have no more bytes to splice.
 		// -------------------------------- //
     remaining:=n                        // Remaining bytes to splice.
 		for remaining>0{                    // While we have bytes to splice...
-		  m,err:=unix.Splice(rfd,nil,fd1,nil,int(remaining),smode)
-			if err==syscall.EAGAIN{           // EAGAIN error?
+		  m,werr:=unix.Splice(rfd,nil,fd1,nil,int(remaining),smode)
+			if werr==syscall.EAGAIN{          // EAGAIN error?
 			  waitWritable(fd1)               // Wait for the destination socket to be writable.
 			  continue                        // Yes, continue to splice.
 			}                                 // Done checking for EAGAIN error.
-			if err==unix.EPIPE||err==io.ErrClosedPipe{// Was the pipe closed?
+			if werr==unix.EPIPE||werr==io.ErrClosedPipe{// Was the pipe closed?
 			  return nil                      // That means we are done, return nil.
 			}                                 // Done checking for closed pipe.
-			if err!=nil{                      // Error splicing from pipe to dst?
+			if werr!=nil{                     // Error splicing from pipe to dst?
 			  return err                      // Yes, return the error.
 			}                                 // Done checking for error splicing.
 			remaining-=m                      // We processed m bytes.
+			add(uint64(m))                    // Add the bytes to the counter.
 		}                                   // Done splicing the data.
 	}                                     // Done splicing the data.
 }                                       // ----------- spliceCopy ----------- //
@@ -190,7 +194,7 @@ add AddBytes) error{                    // Function to add bytes to the counter.
 	if err:=setSockOptInt(fd1,unix.SOL_SOCKET,unix.SO_ZEROCOPY,1);err!=nil{
 	  return err                          // Yes, return the error.
 	}                                     // Done checking for error setting sock opt.
-	bufMem:=make([]byte,bufsiz)           // Create a buffer of size bufsiz.
+	bufMem:=make([]byte,4*bufsiz)         // Create a buffer of size bufsiz.
 	var seq uint32                        // Sequence number for the MSG_ZEROCOPY flag.
 	var inFlight sync.Map                 // Map to track the in-flight messages.
 	done:=make(chan struct{},1)           // Channel to signal when we are done.
@@ -214,7 +218,7 @@ add AddBytes) error{                    // Function to add bytes to the counter.
 			_,oobn,_,_,err:=unix.Recvmsg(int(fd1),nil,ctl,
 			  unix.MSG_ERRQUEUE|unix.MSG_DONTWAIT)// Get the completion events.
 			if err == unix.EAGAIN{            // Did we get EAGAIN?
-			  time.Sleep(200*time.Microsecond)// Yes, sleep a bit..
+			  time.Sleep(50*time.Microsecond) // Yes, sleep a bit..
 				continue                        // ... and continue.
 			}                                 // Done checking for EAGAIN error.
 			if err!=nil{                      // Did we get an error rcving the msg?
@@ -228,13 +232,13 @@ add AddBytes) error{                    // Function to add bytes to the counter.
 			for _,cmsg:=range msgs{           // For each control message...
 			  if e:=parseSockExtErr(cmsg);e!=nil&&e.Origin==unix.SO_EE_ORIGIN_ZEROCOPY{
 				  if v,ok:=inFlight.LoadAndDelete(e.Info);ok{// Any entry in inFlight map?
-						add(uint64(v.(int)))        // Yes, add the bytes to the counter.
+						add(uint64(v.(int)))        // Yes, dequeue and add the bytes to the counter.
 					}                             // Done checking for entry in inFlight map.
 					if extra:=e.Data;extra>0{     // Is there an extra data?
 					  seqDone:=e.Info-uint32(extra) // Sequence number done.
 						for s:=seqDone+1;s<e.Info;s++{// For each sequence number done...
 						  if v,ok:=inFlight.LoadAndDelete(s);ok{ // Is there an entry in the inFlight map?
-							  add(uint64(v.(int)))    // Yes, add the bytes to the counter.
+							  add(uint64(v.(int)))    // Yes, dequeue and add the bytes to the counter.
 							}                         // Done checking for entry in inFlight map.
 						}                           // Done iterating over sequence numbers.
 					}                             // Done checking for extra data.
@@ -261,7 +265,7 @@ readLoop:
 		}                                   // Done checking for errors reading from src.
 		if n>0{                             // Was any data read?
 		  curr:=atomic.AddUint32(&seq,1)    // Increment the sequence number.
-			inFlight.Store(curr,n)            // Store # of byte for this sequence.
+			inFlight.Store(curr,n)            // Enqueue # of byte for this sequence.
 		  for off:=0;off<n;{                // While there are bytes to send...
 			  m,serr:=unix.SendmsgN(fd1,bufMem[off:n],nil,nil,
 				  unix.MSG_ZEROCOPY|unix.MSG_DONTWAIT)
@@ -287,6 +291,7 @@ readLoop:
 	// ---------------------------------- //
 	// Close just the write end of the socket to signal peer we are done sending.
 	// This will allow the reaper to exit when all messages are confirmed.
+	// ---------------------------------- //
 	_=unix.Shutdown(fd1,unix.SHUT_WR)     // Shutdown the write end of the socket.
 	for{                                  // Until we are not in flight or we get a signal...
 	  if empty:=isEmpty(&inFlight);empty{ // Is our in flight map empty?
