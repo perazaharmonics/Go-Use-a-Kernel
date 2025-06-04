@@ -69,7 +69,7 @@ func CopyPair(a,b *net.TCPConn, scfg *ServerConfig, add AddBytes) error{
 			go run(spliceCopy,b,a)						// Run the function with SpliceCopy.
 		case ZeroSend:                      // We are using ZeroSend.
 		  go run(zeroCopySend,a,b)          // Run zeroCopySend on XMT.
-		  go run(spliceCopy,b,a)            // Run spliceCopy on RCV.
+		  go run(zeroCopySend,b,a)            // Run spliceCopy on RCV.
 		default:                            // We are using the default.
 		 go run(spliceCopy,a,b)             // Run the function with LazyCopy.
 		 go run(spliceCopy,b,a)             // Run the function with LazyCopy. 
@@ -92,11 +92,11 @@ func CopyPair(a,b *net.TCPConn, scfg *ServerConfig, add AddBytes) error{
 // ------------------------------------ //
 func lazyCopy(                          // ------------ lazyCopy ------------ //
 src,dst *net.TCPConn,                   // The src and dst TCP connections.
-bufsiz int,                             // The size of the buffer to use.
-add AddBytes) error{              // Function to add bytes to the counter.
+bufsiz int,                           // The size of the buffer to use.
+add AddBytes) error{                    // Function to add bytes to the counter.
   buffer:=make([]byte,bufsiz)           // Create a buffer of size bufsiz.
 	n,err:=io.CopyBuffer(dst,src,buffer)  // Copy the data from src to dst using the buffer.
-	add(int(n))
+	add(uint64(n))
 	return err                            // Return the error if any.
 }                                       // ------------ lazyCopy ------------ //
 // ------------------------------------ //
@@ -107,8 +107,8 @@ add AddBytes) error{              // Function to add bytes to the counter.
 // ------------------------------------ //
 func spliceCopy(                        // ----------- spliceCopy ----------- //
 src, dst *net.TCPConn,                  // The src and dst TCP connections.
-bufsiz int,                             // The size of the buffer to use.
-add AddBytes) error{              // Function to add bytes to the counter.                
+bufsiz int,                           // The size of the buffer to use.
+add AddBytes) error{                    // Function to add bytes to the counter.                
   fd0,err:=connFD(src)                  // The fd of the source connection.
 	if err!=nil{                          // Error getting the sock fd?
 		return err                          // Yes, return the error.
@@ -140,7 +140,7 @@ add AddBytes) error{              // Function to add bytes to the counter.
 			case n==0:                        // EOF?
 			  return nil                      // Yes source closed, return nil.
 		}                                   // Done acting according to error code.
-		add(int(n))                         // Add the number of bytes transferred.
+		add(uint64(n))                         // Add the number of bytes transferred.
 		// -------------------------------- //
 		// Now we splice from the read end of the pipe and write into the destination
 		// socket. We will do this until we have no more bytes to splice.
@@ -166,12 +166,16 @@ add AddBytes) error{              // Function to add bytes to the counter.
 // zeroCopySend() uses MSG_ZEROCPY to send the data from src to dst.
 // It uses the SetsockoptInt() syscall to set the MSG_ZEROCOPY flag.
 // It returns the first non-EOF error if any were to occur.
+// NOTE: This method seems to be the fastest, but it relies on the system being
+// UNIX based and the kernel having support for MSG_ZEROCOPY.
 // ------------------------------------ //
 func zeroCopySend(                      // ---------- zeroCopySend ---------- //
 src,dst *net.TCPConn,                   // The src and dst TCP connections.
 bufsiz int,                             // The size of the buffer to use.
-add AddBytes) error{              // Function to add bytes to the counter.
+add AddBytes) error{                    // Function to add bytes to the counter.
   // ---------------------------------- //
+	// File descriptor and kernel setup.
+	// ---------------------------------- //
 	// Use the SetsockoptInt() syscall to set the MSG_ZEROCOPY flag. This allows
 	// us to send the data from src to dst without copying it to user space.
 	// ---------------------------------- //
@@ -183,7 +187,7 @@ add AddBytes) error{              // Function to add bytes to the counter.
 	if err!=nil{                          // Error getting the sock fd?
 	  return err                          // Yes, return the error.
 	}                                     // Done checking for error geting fd.
-	if err:=setSockOptInt(fd1,unix.SOL_SOCKET,unix.SO_SNDBUF,1);err!=nil{
+	if err:=setSockOptInt(fd1,unix.SOL_SOCKET,unix.SO_ZEROCOPY,1);err!=nil{
 	  return err                          // Yes, return the error.
 	}                                     // Done checking for error setting sock opt.
 	bufMem:=make([]byte,bufsiz)           // Create a buffer of size bufsiz.
@@ -191,6 +195,7 @@ add AddBytes) error{              // Function to add bytes to the counter.
 	var inFlight sync.Map                 // Map to track the in-flight messages.
 	done:=make(chan struct{},1)           // Channel to signal when we are done.
   // ---------------------------------- //
+	// Reaper loop to harvers MSG_ERRQUEUE events.
 	// Spawn a goroutine to reap completion events.
 	// ---------------------------------- //
 	go func(){                            // On a spearate thread...
@@ -221,57 +226,71 @@ add AddBytes) error{              // Function to add bytes to the counter.
       // ------------------------------ //
 			msgs,_:=unix.ParseSocketControlMessage(ctl[:oobn])
 			for _,cmsg:=range msgs{           // For each control message...
-			  exterr:=parseSockExtErr(cmsg)
-				// Not a extended error message?
-				if exterr==nil||exterr.Origin!=unix.SO_EE_ORIGIN_ZEROCOPY{
-				  continue                      // No, continue to the next message.
-				}                               // Done checking for extended error message.
-				if val,ok:=inFlight.Load(exterr.Info);ok{// Any info in the map?
-				  add(int(val.(int)))      // Yes, add the bytes to the counter.
-					inFlight.Delete(exterr.Info)  // Remove the entry from the map.
-				}                               // Done checking for info in the map.
+			  if e:=parseSockExtErr(cmsg);e!=nil&&e.Origin==unix.SO_EE_ORIGIN_ZEROCOPY{
+				  if v,ok:=inFlight.LoadAndDelete(e.Info);ok{// Any entry in inFlight map?
+						add(uint64(v.(int)))        // Yes, add the bytes to the counter.
+					}                             // Done checking for entry in inFlight map.
+					if extra:=e.Data;extra>0{     // Is there an extra data?
+					  seqDone:=e.Info-uint32(extra) // Sequence number done.
+						for s:=seqDone+1;s<e.Info;s++{// For each sequence number done...
+						  if v,ok:=inFlight.LoadAndDelete(s);ok{ // Is there an entry in the inFlight map?
+							  add(uint64(v.(int)))    // Yes, add the bytes to the counter.
+							}                         // Done checking for entry in inFlight map.
+						}                           // Done iterating over sequence numbers.
+					}                             // Done checking for extra data.
+				}                               // Done checking for extended error.    
 			}                                 // Done parsing the control message.                                
 		}                                   // Done listening for completion events.
 		close(done)                         // Close the done channel.
 	}()                                   // Done spawning the reaper thread.
 	// ---------------------------------- //
+	// Copy loop - read from src, zero-copy send to dst.
+	// ---------------------------------- //
 	// We will use the sendmsg syscall to send the data from src to dst.
 	// We will use the MSG_ZEROCOPY flag to send the data without copying it
 	// and the MSG_DONTWAIT flag to make it non-blocking.
 	// ---------------------------------- //
-	for{                                  // Until we get EOF...
-	  n,rderr:=unix.Read(fd0,bufMem)      // Place data from src into the buffer.
-		if n==0&&rderr==nil{                // EOF and no error?
-		  break                             // Yes we are done, break from the loop.
+readLoop:
+  for{                                  // Until we get EOF or error...
+	  n,rerr:=unix.Read(fd0,bufMem)       // Read data from the source connection.
+		switch{                             // Switch according to the error.
+		  case rerr==unix.EAGAIN||rerr==unix.EWOULDBLOCK:// EAGAIN or EWOULDBLOCK error?
+		    waitReadable(fd0)               // Yes, wait til we can read again.
+		  case rerr!=nil&&rerr!=io.EOF:     // Any other error and NOT EOF?
+			  return rerr                     // Yes, return the error.
+		}                                   // Done checking for errors reading from src.
+		if n>0{                             // Was any data read?
+		  curr:=atomic.AddUint32(&seq,1)    // Increment the sequence number.
+			inFlight.Store(curr,n)            // Store # of byte for this sequence.
+		  for off:=0;off<n;{                // While there are bytes to send...
+			  m,serr:=unix.SendmsgN(fd1,bufMem[off:n],nil,nil,
+				  unix.MSG_ZEROCOPY|unix.MSG_DONTWAIT)
+				if serr==unix.EAGAIN{           // EAGAIN error?
+				  waitWritable(fd1)             // Wait for the destination socket to be writable.
+				  continue                      // Continue and try again.
+				}                               // Done checking for EAGAIN.
+				if serr!=nil{                   // We actually got a send error?
+				  return serr                   // Yes return the error.
+				}                               // Done checking for send error.
+				off+=m                          // We sent m bytes, so we move the offset.
+			}                                 // Done writing to dst socket.
+		}                                   // Done checking if we read any data.
+		if rerr==io.EOF||n==0{              // EOF or no data read (...EOF)?
+		  break readLoop                    // Yes we are done reading, so break.
 		}                                   // Done checking for EOF.
-		if rderr!=nil&&rderr!=io.EOF{       // Error reading from src?
-		  return rderr                      // Yes, return the error.
-		}                                   // Done checking for error reading.
-		seq:=atomic.AddUint32(&seq,1)       // Increment the sequence number.
-		inFlight.Store(seq,n)               // In this sequence we have n bytes.
-		// -------------------------------- //
-		// Now we will send the data from src to dst using the sendmsg syscall.
-		// -------------------------------- //
-		for off:=0;off<n;{       // While we have bytes to send...
-			m,err:=unix.SendmsgN(fd1,bufMem[off:n],nil,nil,
-			  unix.MSG_ZEROCOPY|unix.MSG_DONTWAIT)// Send the data in buffer to dst.
-			if err==unix.EAGAIN{              // EAGAIN error?
-			  waitWritable(fd1)               // Wait for dst socket to be writable.
-		    continue                        // Yes, continue to send.
-		  }                                 // Done checking for EAGAIN error.
-			off+=m                            // We sent m bytes, so we need to send the rest.                     
-	  }                                   // Done sending the data.
-		if rderr==io.EOF{                   // Did we get EOF from src?
-		  break                             // That's good, break from the loop.
-		}                                   // Done checking for EOF.
-	}                                     // Done reading from src and sending to dst.
+	}                                     // Done waiting for data to read from src.
+	// ---------------------------------- //
+	// Drain loop - finish outstanding sends, keep RX path alive.
 	// ---------------------------------- //
 	// Now we wait for kernel to confirm all outstanding messages by listening
 	// on the done channel. This will block until all messages are confirmed.
 	// ---------------------------------- //
+	// Close just the write end of the socket to signal peer we are done sending.
+	// This will allow the reaper to exit when all messages are confirmed.
+	_=unix.Shutdown(fd1,unix.SHUT_WR)     // Shutdown the write end of the socket.
 	for{                                  // Until we are not in flight or we get a signal...
 	  if empty:=isEmpty(&inFlight);empty{ // Is our in flight map empty?
-		  break                             // That's great we are done, break.
+		  return nil                        // That's great we are done, break.
 		}                                   // Done checking for empty map.
 		select{                             // Chose between done signal and timeout.
 		  case <-done:                      // Is that a signal from the reaper?
@@ -279,7 +298,6 @@ add AddBytes) error{              // Function to add bytes to the counter.
 		  case <-time.After(200*time.Microsecond): // Timeout? No-op, just continue.
 		}                                   // Done listening for signals.                
 	}                                     // Done with for loop.
-	return nil                            // The good ending, no errors found.
 }                                       // ---------- zeroCopySend ---------- //
 // ------------------------------------ //
 // isEmpty() checks if the inFlight map is empty.
