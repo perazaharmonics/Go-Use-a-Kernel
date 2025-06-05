@@ -1633,13 +1633,13 @@ func (s *Section) Print(w io.Writer) (int64,error){
 // in the configuration file. The value is converted to the type of the
 // destination variable using the format string.
 // -------------------------------------------------------------------------- //
-func (s *Section) scanValue(value, format string, dest any) error{
-  if len(value)==0{                     // Within range?
-	return fmt.Errorf("The value of the parameter %s is %v",s.current.name,s.current.value)
-  }                                     // Done checking for out of range.
-  var verb byte                         // The format verb.
-  for j:=1;j<len(format);j++{           // For each character in fmt string...
-	  c:=format[j]                        // Get the j'th characer.
+func (s *Section) scanValue(name,format string, dest any) error{
+  p:=s.FindParameter(name,true)         // Find the parameter in this section.
+	if p==nil { return fmt.Errorf("parameter %s not found in section %s", name, s.name) }// No, return error.
+	raw:=p.GetValue(0)                    // Get the first value of the parameter.
+	verb:=byte(0)                         // The format verb.
+	for i:=1;i<len(format);i++{
+	  c:=format[i]                        // Get the i'th character.
 		// -------------------------------- //
 		// We need to check if 'c' is one of the characters that can legally
 		// appear in the *flags, width, precision or modifier* part of a fmt string.
@@ -1659,12 +1659,10 @@ func (s *Section) scanValue(value, format string, dest any) error{
   val:=reflect.ValueOf(dest).Kind()     // Get the type of the dest variable.
 	if dest==nil||val!=reflect.Ptr{       // Is dest nil or not a pointer?
 	return errors.New("destination must be a non-nil pointer")// Yes, return an error.
-  }                                     // Done checking for nil or pointer.
-  //raw:=p.GetValue(uint(i))                              
-	// Scan the value into the destination variable
-  _,err:=fmt.Sscanf(string(value),format,dest)
-	return err                            // Return error if any.  
-}
+  }                                     // Done checking for nil or pointer
+	_,err:=fmt.Sscanf(raw,format,dest)    // Scan into destination variable.
+	return err														// Return error if any.
+}                                       // ---------- scanValue ------------- //
 func (s *Section) scanValueByIndex(name string,i int, format string, dest any) error{
   p:=s.FindParameter(name,true)         // Find the parameter in this section.
 	if p==nil{                            // Did we find the parameter?
