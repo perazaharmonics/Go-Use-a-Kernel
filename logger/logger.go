@@ -352,119 +352,123 @@ func (l *Logger) writeToFile(file, msg string) error {
 // logMessage is the internal log function that facilitates writing logs
 // to the specified text file.
 func (l *Logger) logMessage(level LogLevel, msg string) {
-	if level < l.Level { // Log level less than current level?
-		return // If so, return without logging.
-	} // Otherwise, continue.
-	switch level { // Set the symbol based on the log level
-	case Debug: // Debug level?
-		l.Symbol = "[DEBUG] " // Set symbol to [DEBUG]
-	case Info: // Info level?
-		l.Symbol = "" // Set symbol to none
-	case Warning: // Warning level?
-		l.Symbol = "* " // Set symbol to *
-	case Error: // Error level?
-		l.Symbol = "! " // Set symbol to !
-	case Fatal: // Fatal level?
-		l.Symbol = "@ " // Set symbol to !!
-	} // Done setting the symbol
-	// ---------------------------------- //
-	// If the message in the buffer is a multiline message we will purge that
-	// buffer and set a recursive entrypoint so that it enters the log
-	// with a clean and nice buffer.
-	// ---------------------------------- //
-	if strings.Contains(msg, "\n") { // Does the buffer container a newline?
-		for _, line := range strings.Split(msg, "\n") { // Yes split them by line & purge.
-			if line != "" { // Is the purged message not empty?
-				l.logMessage(level, line) // Log that message without the newline.
-			} else { // Otherwise...
-				continue // Skip the empty line.
-			} // Done checking the line.
-		} // Done splitting the message.
-		return // Return if we had to purge a message.
-	} // Otherwise no newline so just fall through.
-	// ---------------------------------- //
-	// Lock the mutex so that you have a goroutine-local lock
-	// and unlock it when done.
-	// ---------------------------------- //
-	l.mu.Lock()         // Lock the mutex to protect the log file
-	defer l.mu.Unlock() // Unlock the mutex after writing
-	// ---------------------------------- //
-	// Lock the semaphore to ensure only one process can write to the file at a time
-	// and unlock it when done.
-	// ---------------------------------- //
-	sem.Lock("Because we are writing to the log file.")
-	defer sem.Unlock("Because we are done writing to the log file.")
-	// -------------------------------- //
-	// Get the file size to check if it exceeds 500KiB,
-	// if so, clear the log file.
-	// -------------------------------- //
-	flogInfo, err := os.Stat(logpathname) // Get the file info
-	if err != nil {                       // Error getting file info?
-		fmt.Printf("Failed to get file info: %v\n", err) // Error getting file info
-		return                                           // Return if error
-	} // Otherwise, continue.
-	ferrInfo, ers := os.Stat(errpathname) // Get the error file info
-	if ers != nil {                       // Error getting file info?
-		fmt.Printf("Failed to get file info: %v\n", ers) // Error getting file info
-		return                                           // Return if error
-	} // Otherwise, continue.
-	flogSiz := flogInfo.Size() // Get the file size
-	if flogSiz > maxLogSize {  // If file size exceeds 30KB
-		l.clearLogFile(logpathname) // Clear the log file
-	} // Otherwise, continue.
-	ferrSiz := ferrInfo.Size() // Get the error file size
-	if ferrSiz > maxLogSize {  // If file size exceeds 30KB
-		l.clearLogFile(errpathname) // Clear the error file
-	} // Otherwise, continue.
-	// ---------------------------------- //
+  if sem==nil{                          // Is the semaphore initialized?
+    fmt.Fprintf(os.Stderr,"%s\n",msg)   // No, write the message to stderr.
+    return                              // Return if semaphore is not initialized.
+  }                                     // Otherwise, continue.
+  if level < l.Level {                  // Log level less than current level?
+	  return                              // If so, return without logging.
+	}                                     // Otherwise, continue.
+  switch level {                        // Set the symbol based on the log level
+    case Debug:                         // Debug level?
+      l.Symbol = "[DEBUG] "             // Set symbol to [DEBUG]
+    case Info:                          // Info level?
+      l.Symbol = ""                     // Set symbol to none
+    case Warning:                       // Warning level?
+      l.Symbol = "* "                   // Set symbol to *
+    case Error:                         // Error level?
+      l.Symbol = "! "                   // Set symbol to !
+    case Fatal:                         // Fatal level?
+      l.Symbol = "@ "                   // Set symbol to !!
+  }                                     // Done setting the symbol
+  // ---------------------------------- //
+  // If the message in the buffer is a multiline message we will purge that
+  // buffer and set a recursive entrypoint so that it enters the log
+  // with a clean and nice buffer. 
+  // ---------------------------------- //
+  if strings.Contains(msg,"\n"){        // Does the buffer container a newline?
+    for _,line:=range strings.Split(msg,"\n"){ // Yes split them by line & purge.
+      if line!=""{                      // Is the purged message not empty?
+        l.logMessage(level,line)        // Log that message without the newline.
+      } else {                          // Otherwise...
+        continue                        // Skip the empty line.
+      }                                 // Done checking the line.
+    }                                   // Done splitting the message.
+    return                              // Return if we had to purge a message.
+  }                                     // Otherwise no newline so just fall through.
+  // ---------------------------------- //
+  // Lock the mutex so that you have a goroutine-local lock
+  // and unlock it when done.
+  // ---------------------------------- //
+  l.mu.Lock()                           // Lock the mutex to protect the log file
+  defer l.mu.Unlock()                   // Unlock the mutex after writing
+  // ---------------------------------- //
+  // Lock the semaphore to ensure only one process can write to the file at a time
+  // and unlock it when done.
+  // ---------------------------------- //
+  sem.Lock("Because we are writing to the log file.")
+  defer sem.Unlock("Because we are done writing to the log file.")
+  // -------------------------------- //
+  // Get the file size to check if it exceeds 500KiB,
+  // if so, clear the log file.
+  // -------------------------------- //
+  flogInfo, err := os.Stat(logpathname)// Get the file info
+  if err != nil {                     // Error getting file info?
+    fmt.Printf("Failed to get file info: %v\n", err)// Error getting file info
+    return                            // Return if error
+  }                                   // Otherwise, continue.
+  ferrInfo, ers := os.Stat(errpathname)// Get the error file info
+  if ers != nil {                     // Error getting file info?
+    fmt.Printf("Failed to get file info: %v\n", ers)// Error getting file info
+    return                            // Return if error
+  }                                   // Otherwise, continue.
+  flogSiz:=flogInfo.Size()            // Get the file size
+  if flogSiz > maxLogSize {           // If file size exceeds 30KB
+    l.clearLogFile(logpathname)       // Clear the log file
+  }                                   // Otherwise, continue.
+  ferrSiz:=ferrInfo.Size()            // Get the error file size
+  if ferrSiz > maxLogSize {           // If file size exceeds 30KB
+    l.clearLogFile(errpathname)       // Clear the error file
+  }                                   // Otherwise, continue.
+  // ---------------------------------- //
 	// Write the log message to the file
 	// ---------------------------------- //
-	maxcol := 168                                                                 // Maximum column size of the log message.
-	timestamp := time.Now().Format(time.RFC3339)                                  // Get the current timestamp
-	filename := getAppname()                                                      // Get the file name
-	funcname := getFuncName()                                                     // Get the function name
-	hdr := fmt.Sprintf("%s: %s: %s: %s", timestamp, filename, funcname, l.Symbol) // Create the header
-	hRunes := []rune(hdr)                                                         // Convert header to slice of runes.
-	// ---------------------------------- //
-	// Calculate the space for one separator and the body start.
-	// ---------------------------------- //
-	bWidth := maxcol - len(hRunes) - 1           // Calculate the message body's width
-	indent := strings.Repeat(" ", len(hRunes)+1) // Create the indent
-	// ---------------------------------- //
-	// Chop the message into chunks of bodyWidth characters (runes)
-	// then write them to the logfile.
-	// ---------------------------------- //
-	bRunes := []rune(msg) // Convert message to slice of runes.
-	first := true         // Flag for first line of message.
-	line := ""            // Line to chup up rune slice.
-	for len(bRunes) > 0 { // While there are things to write!
-		if len(bRunes) > bWidth { // Is the msg larger than bodyWidth?
-			line = string(bRunes[:bWidth]) // Yes get the first bodyWidth runes.
-			bRunes = bRunes[bWidth:]       // Remember we removed the first bodyWidth runes.
-		} else { // Else the msg is smaller than bodyWidth.
-			line = string(bRunes) // Get the runes without chopping them.
-			bRunes = nil          // Remember we removed the remaining runes.
-		} // Done checking the length of the runes.
-		if first { // Is this the first line of the msg?
-			out := hdr + " " + line + "\n"  // The prefix with the header.
-			l.writeToFile(logpathname, out) // Write the log message to the file.
-			if level >= Error {             // If the log level is Error or Fatal.
-				l.writeToFile(errpathname, out) // Write the log message to the error file.
-			} // Done checking which file(s) to write to.
-			first = false // Remember we wrote the first line.
-		} else { // Else this is not the first line.
-			// -------------------------------- //
-			// So now we have a line that must have a prefix and a body and is greater
-			// than 168 runes (characters) long so it might have to be indented.
-			// -------------------------------- //
-			out := indent + line + "\n"     // The prefix with the body.
-			l.writeToFile(logpathname, out) // Write the log message to the file.
-			if level >= Error {             // If the log level is Error or Fatal.
-				l.writeToFile(errpathname, out) // Write the log message to the error file.
-			} // Done writing to the file(s).
-		} // Done with long line.
-	} // Done with while we have to write.
-} // ---------logMessage-------- //
+  maxcol:=168                           // Maximum column size of the log message.
+  timestamp:=time.Now().Format(time.RFC3339) // Get the current timestamp
+  filename:=getAppname()               // Get the file name
+  funcname:=getFuncName()               // Get the function name
+  hdr:=fmt.Sprintf("%s: %s: %s: %s", timestamp, filename, funcname, l.Symbol) // Create the header
+  hRunes:=[]rune(hdr)                   // Convert header to slice of runes.
+  // ---------------------------------- //
+  // Calculate the space for one separator and the body start.
+  // ---------------------------------- //
+  bWidth:=maxcol-len(hRunes)-1          // Calculate the message body's width
+  indent:=strings.Repeat(" ",len(hRunes)+1)// Create the indent
+  // ---------------------------------- //
+  // Chop the message into chunks of bodyWidth characters (runes)
+  // then write them to the logfile.
+  // ---------------------------------- //
+  bRunes:=[]rune(msg)                   // Convert message to slice of runes.
+  first:=true                           // Flag for first line of message.
+  line:=""                              // Line to chup up rune slice.
+  for len(bRunes)>0{                    // While there are things to write!
+    if len(bRunes)>bWidth{              // Is the msg larger than bodyWidth?
+      line=string(bRunes[:bWidth])      // Yes get the first bodyWidth runes.
+      bRunes=bRunes[bWidth:]            // Remember we removed the first bodyWidth runes.
+    } else {                            // Else the msg is smaller than bodyWidth.
+      line=string(bRunes)               // Get the runes without chopping them.
+      bRunes=nil                        // Remember we removed the remaining runes.
+    }                                   // Done checking the length of the runes.
+    if first{                           // Is this the first line of the msg?
+      out:=hdr+" "+line+"\n"            // The prefix with the header.
+      l.writeToFile(logpathname,out)    // Write the log message to the file.
+      if level >= Error{                // If the log level is Error or Fatal.
+        l.writeToFile(errpathname,out)  // Write the log message to the error file.
+      }                                 // Done checking which file(s) to write to.
+      first=false                       // Remember we wrote the first line.
+    } else {                            // Else this is not the first line.
+    // -------------------------------- //
+    // So now we have a line that must have a prefix and a body and is greater
+    // than 168 runes (characters) long so it might have to be indented.
+    // -------------------------------- //
+      out:=indent+line+"\n"             // The prefix with the body.
+      l.writeToFile(logpathname,out)    // Write the log message to the file.
+      if level >= Error{                // If the log level is Error or Fatal.
+        l.writeToFile(errpathname,out)  // Write the log message to the error file.
+      }                                 // Done writing to the file(s).
+    }                                   // Done with long line. 
+  }                                     // Done with while we have to write.
+}                                       // ---------logMessage-------- //
 
 // Deb logs a debug message
 func (l *Logger) Deb(format string, args ...interface{}) bool {
