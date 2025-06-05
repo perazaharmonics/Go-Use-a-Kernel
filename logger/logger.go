@@ -256,14 +256,11 @@ func (l *Logger) Shutdown() error{      // ----------- Shutdown ------------- //
       l.ExitLog("")                     // Yes, close it.
     }                                   // Done checking if the error file is open.
     if sem!=nil{                        // Is the semaphore down?
-      if id:=sem.GetID();id>=0{         // Yes, we have a semaphore ID.
-        if err:=sem.Remove();err!=nil{  // Could we remove the semaphore?
-          shuterr=fmt.Errorf("remove semaphore: %w",err)// That's bad.
-        }                               // Else we could remove the semaphore.
-      }                                 // Done checking if we had a semaphore ID.
-      if err:=sem.Close();err!=nil{     // Could we close it?
-        shuterr=fmt.Errorf("shutdown semaphore: %w",err)// No, log that error.
-      }                                 // Done trying to lift the semaphore.
+      id:=sem.GetID()                   // Get the semaphore ID.
+      _=sem.Close()                     // Try to close it anyways.
+      if id>0{                          // If we have a valid semaphore ID, remove it.
+        _=sem.Remove()                  // Remove the semaphore.
+      }                                 // Done checking if we have a valid semaphore ID.
       sem=nil                           // Remember we closed the semaphore.
     }                                   // Done checking if we had a semaphore.
   })                                    // Done doing the shutdown.
