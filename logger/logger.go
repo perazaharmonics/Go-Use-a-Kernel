@@ -246,24 +246,29 @@ func openErrorfile() error { // Open the error file.
 // goroutines trying to close the log files at the same time, which would cause
 // a panic if they are already closed and try to dereference a nil pointer.
 // ------------------------------------ //
-func (l *Logger) Shutdown() error { // ----------- Shutdown ------------- //
-	var shuterr error // Where to store the shutdown error.
-	once.Do(func() {  // Do the following exactly once.
-		if fpl != nil { // Is the log file open?
-			l.ExitLog("Because we are shutting down the logger.") // Yes, close it.
-		} // Done checking if the log file is open.
-		if fpe != nil { // Is the error file open?
-			l.ExitLog("") // Yes, close it.
-		} // Done checking if the error file is open.
-		if sem != nil { // Is the semaphore down?
-			if err := sem.Close(); err != nil { // Could we close it?
-				shuterr = fmt.Errorf("shutdown semaphore: %w", err) // No, log that error.
-			} // Done trying to lift the semaphore.
-			sem = nil // Remember we closed the semaphore.
-		} // Done checking if we had a semaphore.
-	}) // Done doing the shutdown.
-	return shuterr // Return the shutdown error.
-} // ----------- Shutdown ------------- //
+func (l *Logger) Shutdown() error{      // ----------- Shutdown ------------- //
+  var shuterr error                     // Where to store the shutdown error.
+  once.Do(func(){                       // Do the following exactly once.                     
+    if fpl!=nil{                        // Is the log file open?
+      l.ExitLog("Because we are shutting down the logger.")// Yes, close it.
+    }                                   // Done checking if the log file is open.
+    if fpe!=nil{                        // Is the error file open?
+      l.ExitLog("")                     // Yes, close it.
+    }                                   // Done checking if the error file is open.
+    if sem!=nil{                        // Is the semaphore down?
+      if id:=sem.GetID();id>=0{         // Yes, we have a semaphore ID.
+        if err:=sem.Remove();err!=nil{  // Could we remove the semaphore?
+          shuterr=fmt.Errorf("remove semaphore: %w",err)// That's bad.
+        }                               // Else we could remove the semaphore.
+      }                                 // Done checking if we had a semaphore ID.
+      if err:=sem.Close();err!=nil{     // Could we close it?
+        shuterr=fmt.Errorf("shutdown semaphore: %w",err)// No, log that error.
+      }                                 // Done trying to lift the semaphore.
+      sem=nil                           // Remember we closed the semaphore.
+    }                                   // Done checking if we had a semaphore.
+  })                                    // Done doing the shutdown.
+  return shuterr                        // Return the shutdown error.
+}                                       // ----------- Shutdown ------------- //
 
 // ------------------------------------ //
 // Get the semaphore key and ID used by this object.
