@@ -26,7 +26,6 @@
 *  J.EP J. Enrique Peraza
 *=============================================================================*/
 
-
 package dispatcher
 import(
   "io"
@@ -40,6 +39,11 @@ import(
 	"github.com/ljt/ProxyServer/internal/pipe"
 )
 
+// safeCloseWrite closes the write half of a TCP connection if possible.
+func safeCloseWrite(c *net.TCPConn){
+  if c!=nil { _=c.CloseWrite()}
+}
+
 // ------------------------------------ //
 // CopyPair() starts two goroutine for src<->dst using ServerConfig.Mode.
 // then wait until both directions are done. It returns the first non-EOF error
@@ -51,11 +55,14 @@ func CopyPair(a,b *net.TCPConn, scfg *ServerConfig, add AddBytes) error{
 	// ---------------------------------- //
 	// Ad hoc function with an anonymous function to run the dispatched alogirthm.
 	// ---------------------------------- //
-	run:=func(fn func(*net.TCPConn,*net.TCPConn,int,AddBytes) error,src,dst *net.TCPConn){
+	run:=func(fn func(*net.TCPConn,*net.TCPConn,*ServerConfig,AddBytes) error,src,dst *net.TCPConn){
 	  // Defer waiting for the goroutine to finish..
 		defer wg.Done()                     // ..when the stack frame unwinds. 
-		errch<-fn(src,dst,scfg.BufSize,add) // Run and send the error to errch.
-	}                                     // Done defining the function.
+		if err:=fn(a,b,scfg,add);err!=nil{
+		  errch<-err                        // If we got an error, send it to the error channel.
+		}                                   // Done defining the function.
+	  safeCloseWrite(b)                   // Close the write half of the destination connection.
+	}                                     // Done defining the function to run.
 	// ---------------------------------- //
 	// Now we add two units to the waitgroup, and according to the mode
 	// we run the function with the right algorithm.
@@ -93,9 +100,9 @@ func CopyPair(a,b *net.TCPConn, scfg *ServerConfig, add AddBytes) error{
 // ------------------------------------ //
 func lazyCopy(                          // ------------ lazyCopy ------------ //
 src,dst *net.TCPConn,                   // The src and dst TCP connections.
-bufsiz int,                             // The size of the buffer to use.
+scfg *ServerConfig,                             // The size of the buffer to use.
 add AddBytes) error{                    // Function to add bytes to the counter.
-  buffer:=make([]byte,4*bufsiz)         // Create a buffer of size 256KiB.
+  buffer:=make([]byte,4*scfg.BufSize)         // Create a buffer of size 256KiB.
 	n,err:=io.CopyBuffer(dst,src,buffer)  // Copy the data from src to dst using the buffer.
 	add(uint64(n))
 	return err                            // Return the error if any.
@@ -108,7 +115,7 @@ add AddBytes) error{                    // Function to add bytes to the counter.
 // ------------------------------------ //
 func spliceCopy(                        // ----------- spliceCopy ----------- //
 src, dst *net.TCPConn,                  // The src and dst TCP connections.
-bufsiz int,                           // The size of the buffer to use.
+scfg *ServerConfig,                     // The server config with the pipe capacity.
 add AddBytes) error{                    // Function to add bytes to the counter.                
   fd0,err:=connFD(src)                  // The fd of the source connection.
 	if err!=nil{                          // Error getting the sock fd?
@@ -124,7 +131,7 @@ add AddBytes) error{                    // Function to add bytes to the counter.
 	p,err:=pipe.NewPipe2(unix.O_CLOEXEC|unix.O_NONBLOCK)    // Create a new pipe with CLOEXEC flag.
 	if err!=nil{ return err }             // Error creating pipe object?	
 	defer p.Close()                       // Close the pipe when done.
-	_,err=p.SetCapacity(4*bufsiz)         // Set the capacity of the pipe to 4*bufsiz.
+	_,err=p.SetCapacity(4*scfg.BufSize)         // Set the capacity of the pipe to 4*bufsiz.
 	const smode=unix.SPLICE_F_MOVE|unix.SPLICE_F_MORE|unix.SPLICE_F_GIFT
 	rfd:=p.GetReadEndFD()                 // The read end of the pipe.
 	wfd:=p.GetWriteEndFD()                // The write end of the pipe.
@@ -134,10 +141,13 @@ add AddBytes) error{                    // Function to add bytes to the counter.
 	// end of the pipe. Go's TCP socket is non-blocking so we will
 	// have to wait for the socket to be readable before we can splice
 	// ---------------------------------- //
-	  n,rerr:=unix.Splice(fd0,nil,wfd,nil,bufsiz,smode)
+	  n,rerr:=unix.Splice(fd0,nil,wfd,nil,scfg.BufSize,smode)
     switch{                             // Switch according to the error.
 		  case rerr==syscall.EAGAIN:        // EAGAIN error?
-			  waitReadable(fd0)               // Wait for the source socket to be readable.
+			  // Wait for the source socket to be readable.
+				if err:=waitReadable(fd0,scfg.Timeout);err!=nil{
+				  return err                    // Yes, we got an error waiting for readable.
+				}                               // Done waiting for readable.
 		    continue                        // Yes, continue to splice.
 		  case rerr!=nil:                   // Error splicing from src to pipe?
 		    return err                      // Yes, return the error.
@@ -152,7 +162,10 @@ add AddBytes) error{                    // Function to add bytes to the counter.
 		for remaining>0{                    // While we have bytes to splice...
 		  m,werr:=unix.Splice(rfd,nil,fd1,nil,int(remaining),smode)
 			if werr==syscall.EAGAIN{          // EAGAIN error?
-			  waitWritable(fd1)               // Wait for the destination socket to be writable.
+			  // Wait for the destination socket to be writable.
+			  if err:=waitWritable(fd1,scfg.Timeout);err!=nil{
+				  return err                    // Yes, we got an error waiting for writable.
+				}                               // Done waiting for writable.
 			  continue                        // Yes, continue to splice.
 			}                                 // Done checking for EAGAIN error.
 			if werr==unix.EPIPE||werr==io.ErrClosedPipe{// Was the pipe closed?
@@ -175,7 +188,7 @@ add AddBytes) error{                    // Function to add bytes to the counter.
 // ------------------------------------ //
 func zeroCopySend(                      // ---------- zeroCopySend ---------- //
 src,dst *net.TCPConn,                   // The src and dst TCP connections.
-bufsiz int,                             // The size of the buffer to use.
+scfg *ServerConfig,                     // The server config with the pipe capacity.
 add AddBytes) error{                    // Function to add bytes to the counter.
   // ---------------------------------- //
 	// File descriptor and kernel setup.
@@ -194,7 +207,7 @@ add AddBytes) error{                    // Function to add bytes to the counter.
 	if err:=setSockOptInt(fd1,unix.SOL_SOCKET,unix.SO_ZEROCOPY,1);err!=nil{
 	  return err                          // Yes, return the error.
 	}                                     // Done checking for error setting sock opt.
-	bufMem:=make([]byte,4*bufsiz)         // Create a buffer of size bufsiz.
+	bufMem:=make([]byte,4*scfg.BufSize)         // Create a buffer of size bufsiz.
 	var seq uint32                        // Sequence number for the MSG_ZEROCOPY flag.
 	var inFlight sync.Map                 // Map to track the in-flight messages.
 	done:=make(chan struct{},1)           // Channel to signal when we are done.
@@ -259,7 +272,10 @@ readLoop:
 	  n,rerr:=unix.Read(fd0,bufMem)       // Read data from the source connection.
 		switch{                             // Switch according to the error.
 		  case rerr==unix.EAGAIN||rerr==unix.EWOULDBLOCK:// EAGAIN or EWOULDBLOCK error?
-		    waitReadable(fd0)               // Yes, wait til we can read again.
+		    // Wait for the source socket to be readable.
+				if err:=waitReadable(fd0,scfg.Timeout);err!=nil{
+				  return err                    // Yes, we got an error waiting for readable.
+				}                               // Done waiting for readable.
 		  case rerr!=nil&&rerr!=io.EOF:     // Any other error and NOT EOF?
 			  return rerr                     // Yes, return the error.
 		}                                   // Done checking for errors reading from src.
@@ -270,7 +286,10 @@ readLoop:
 			  m,serr:=unix.SendmsgN(fd1,bufMem[off:n],nil,nil,
 				  unix.MSG_ZEROCOPY|unix.MSG_DONTWAIT)
 				if serr==unix.EAGAIN{           // EAGAIN error?
-				  waitWritable(fd1)             // Wait for the destination socket to be writable.
+			  // Wait for the destination socket to be writable.
+			  if err:=waitWritable(fd1,scfg.Timeout);err!=nil{
+				  return err                    // Yes, we got an error waiting for writable.
+				}                               // Done waiting for writable.
 				  continue                      // Continue and try again.
 				}                               // Done checking for EAGAIN.
 				if serr!=nil{                   // We actually got a send error?
@@ -344,8 +363,13 @@ c *net.TCPConn) (int,error){            // Get the file descriptor of the TCP co
 // It returns when the file descriptor is readable.
 // ------------------------------------ //
 func waitReadable(                      // ---------- waitReadable ---------- //
-fd int){                                // The file descriptor to wait for.
-  poll(fd,unix.POLLIN)                  // Poll the file descriptor for readability.
+fd int,                                 // The file descriptor to wait for.
+to time.Duration) error{                // How long to wait for.
+  // Poll the file descriptor for readability.
+  if err:=poll(fd,unix.POLLIN,to);err!=nil{// Error polling?
+	  return err                          // Yes, return the error.
+	}                                     // Done checking for error polling.
+	return nil                            // No error, return nil.
 }                                       // ---------- waitReadable ---------- //
 // ------------------------------------ //
 // waitWritable() waits for the file descriptor to be writable.
@@ -353,8 +377,13 @@ fd int){                                // The file descriptor to wait for.
 // It returns when the file descriptor is writable.
 // ------------------------------------ //
 func waitWritable(                      // ---------- waitWritable ---------- //
-fd int){                                // The file descriptor to wait for.
-  poll(fd,unix.POLLOUT)                 // Poll the file descriptor for writability.
+fd int,                                 // The file descriptor to wait for.
+to time.Duration) error{                // How long to wait for.          
+  // Poll the file descriptor for writability.
+  if err:=poll(fd,unix.POLLOUT,to);err!=nil{// Error polling?
+	  return err                          // Yes, return the error.
+	}                                     // Done checking for error polling.
+	return nil                            // No error, return nil.
 }                                       // ---------- waitWritable ---------- //
 // ------------------------------------ //
 // poll() waits for the file descriptor to be readable or writable.
@@ -363,9 +392,19 @@ fd int){                                // The file descriptor to wait for.
 // ------------------------------------ //
 func poll(                              // ------------- poll --------------- //
 fd int,                                 // The file descriptor to wait for.
-e int16){                               // The event to wait for.
-  p:=[]unix.PollFd{{Fd: int32(fd),Events: e}}
-	_,_=unix.Poll(p,-1)                   // Poll file descriptor for the event.
+e int16,                                // The event to wait for.
+d time.Duration) error{                       // How long to wait for the event.       
+	t:=-1                                 // Timeout value for the poll syscall.
+	if d>0{                               // Is the duration greater than 0?
+	  t=int(d.Milliseconds())             // Yes, set the timeout value to the duration in milliseconds.
+	}                                     // Done checking for duration.
+	// Poll the file descriptor.          // This will block until the file descriptor is readable or writable.
+	n,err:=unix.Poll([]unix.PollFd{{Fd: int32(fd),Events: e}},t)// readable or writable.
+  if err!=nil { return err }            // Error polling the file descriptor?
+	if n==0{                              // Did we timeout?
+	  return syscall.ETIMEDOUT            // Yes, return ETIMEDOUT error.
+	}                                     // Done checking for timeout.
+	return nil                            // No error, return nil.
 }                                       // ------------- poll --------------- //
 // ------------------------------------ //
 // SetSockOptInt() sets the socket option for the file descriptor. It is a
