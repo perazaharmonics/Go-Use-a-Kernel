@@ -2309,13 +2309,17 @@ func (cfg *Configuration) GetNextParameterValues(vals [][]string,q []string) (na
 	if s!=nil{                            // Is there a current section?
 	  p:=s.GetSelectedParameter()         // Get the selected parameter.
 		if p!=nil{                          // Did we find a parameter?
-		  name[0]=p.GetName()               // Yes, get it's name.
+		  // Allocate space for the buffer.
+			name=make([]string,1)             // Allocate space for the name.
+			values=make([][]string,1)         // Allocate space for the values.
+			name[0]=p.GetName()               // Yes, get it's name.
 			nValues=int(p.GetNValues())       // Get the number of values.
 			if vals!=nil{                     // Did they give us any values?
 			  values[0]=p.GetValueArray()     // Yes, so get the values.
 			}                                 // Done checking for values.
 			if q!=nil{                        // Did they give us any quotes?
-			  quotes[0]=string(p.quotes)      // Yes, so get the quotes.
+			  quotes=make([]string,1)         // Yes, so allocate space for the quotes.
+				quotes[0]=string(p.quotes)      // Yes, so get the quotes.
 			}                                 // Done checking for quotes.
 			s.SelectParameter(p.GetNext())    // Select the next parameter in the section.
       return name,nValues,values,quotes,nil// Return what we found.
@@ -2334,6 +2338,9 @@ func (cfg *Configuration) GetNextParameterValues2(vals [][]string) (name []strin
 	if s!=nil{                            // Is there a current section?
 	  p:=s.GetSelectedParameter()         // Get the selected parameter.
 		if p!=nil{                          // Did we find the default parameter?
+		  // Allocate space for the buffer.
+			name=make([]string,1)             // Allocate space for the name.
+			values=make([]string,1)         // Allocate space for the values.
 		  name[0]=p.GetName()               // Yes, get it's name.
 			if vals!=nil{                     // Did they give us any values?
 			  values[0]=p.GetValue(0)         // Yes, so get the value.
